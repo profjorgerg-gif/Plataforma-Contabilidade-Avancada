@@ -249,6 +249,59 @@
   #cont-avancada .chat-input-row textarea {
     flex:1; min-height:60px; padding:10px; border:1px solid var(--line); font-size:13.5px; font-family:inherit; resize:vertical;
   }
+
+  /* Tela de login — layout dividido, paleta Azul-marinho & Petróleo */
+  #cont-avancada .auth-shell {
+    --abg: #101826; --acard: #15202F; --aaccent: #2E8CA8;
+    min-height: 100vh; display: grid; grid-template-columns: 1.15fr 1fr;
+    background: var(--abg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  @media (max-width: 800px) {
+    #cont-avancada .auth-shell { grid-template-columns: 1fr; }
+  }
+  #cont-avancada .auth-left { padding: 56px 48px 40px; color: #fff; }
+  #cont-avancada .auth-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 30px; }
+  #cont-avancada .auth-logo {
+    width: 54px; height: 54px; border-radius: 50%; border: 2px solid var(--aaccent); color: var(--aaccent);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  #cont-avancada .auth-logo svg { width: 26px; height: 26px; }
+  #cont-avancada .auth-kicker { color: var(--aaccent); font-size: 14px; font-weight: 700; letter-spacing: 0.3px; }
+  #cont-avancada .auth-sub { color: #c9c9c2; font-size: 12.5px; margin-top: 2px; }
+  #cont-avancada .auth-left h1 { font-size: 34px; line-height: 1.18; font-weight: 800; margin-bottom: 16px; }
+  #cont-avancada .auth-desc { font-size: 14.5px; color: #cfcfc8; line-height: 1.6; max-width: 420px; margin-bottom: 26px; }
+  #cont-avancada .auth-bars { display: flex; align-items: flex-end; gap: 4px; height: 60px; margin-bottom: 30px; }
+  #cont-avancada .auth-bars div { width: 10px; background: var(--aaccent); border-radius: 2px 2px 0 0; opacity: 0.55; }
+  #cont-avancada .auth-bars div:nth-last-child(-n+4) { opacity: 1; }
+  #cont-avancada .auth-feat { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; font-size: 13.5px; color: #e4e4dd; }
+  #cont-avancada .auth-feat-ic { width: 18px; height: 18px; border-radius: 4px; background: var(--aaccent); flex-shrink: 0; margin-top: 2px; }
+
+  #cont-avancada .auth-right { background: var(--acard); display: flex; align-items: center; justify-content: center; padding: 40px 30px; }
+  #cont-avancada .auth-card { width: 100%; max-width: 380px; color: #fff; }
+  #cont-avancada .auth-lockrow { font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+  #cont-avancada .auth-hint { font-size: 13px; color: #c9c9c2; margin-bottom: 20px; }
+  #cont-avancada .auth-error { background: rgba(178,74,98,0.18); border: 1px solid #B24A62; color: #f3c9d2; font-size: 12.5px; padding: 8px 12px; border-radius: 6px; margin-bottom: 16px; }
+  #cont-avancada .auth-label { display: block; font-size: 10.5px; letter-spacing: 0.4px; color: #a9a9a1; margin-bottom: 8px; text-transform: none; }
+  #cont-avancada .auth-role-choice { display: flex; gap: 8px; margin-bottom: 14px; }
+  #cont-avancada .auth-role {
+    flex: 1; padding: 11px; border-radius: 6px; border: 1px solid #4a4a44; background: transparent;
+    text-align: center; font-size: 13px; color: #ddd; cursor: pointer;
+  }
+  #cont-avancada .auth-role.on { background: var(--aaccent); color: #08222b; font-weight: 700; border-color: var(--aaccent); }
+  #cont-avancada .auth-code-input { position: relative; margin-bottom: 6px; }
+  #cont-avancada .auth-code-input input {
+    width: 100%; padding: 11px 36px 11px 12px; border-radius: 6px; border: 1px solid #4a4a44;
+    background: #fff; color: #333; font-size: 13px;
+  }
+  #cont-avancada .auth-code-input button {
+    position: absolute; right: 8px; top: 8px; background: none; border: none; cursor: pointer; font-size: 14px; color: #888; padding: 4px;
+  }
+  #cont-avancada .auth-hint2 { font-size: 11.5px; color: #a9a9a1; margin-bottom: 20px; }
+  #cont-avancada .auth-gbtn {
+    width: 100%; background: #fff; color: #333; border: none; border-radius: 6px; padding: 13px; text-align: center;
+    font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer;
+  }
+  #cont-avancada .auth-foot { font-size: 11px; color: #8f8f88; text-align: center; margin-top: 16px; }
 </style>
 </head>
 <body style="margin:0">
