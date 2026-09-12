@@ -1,0 +1,38 @@
+name: Aplicar validação de matrícula do aluno
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/scripts/apply-student-matricula-login.py'
+      - '.github/workflows/apply-student-matricula-login.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Aplicar validação de matrícula
+        run: python .github/scripts/apply-student-matricula-login.py
+      - name: Validar JavaScript
+        run: node --check public/app.js
+      - name: Validar alterações
+        run: |
+          grep -q "Matrícula do aluno" public/app.js
+          grep -q "findStudentEnrollmentByMatricula" public/app.js
+          grep -q "matrícula confirmada" public/app.js
+      - name: Remover instalador temporário
+        run: rm -f .github/scripts/apply-student-matricula-login.py .github/workflows/apply-student-matricula-login.yml
+      - name: Commit e publicação
+        run: |
+          git config user.name "Projetos Pedagogicos"
+          git config user.email "profjorge.rg@gmail.com"
+          git add public/app.js .github/scripts/apply-student-matricula-login.py .github/workflows/apply-student-matricula-login.yml
+          git commit -m "Implanta confirmação obrigatória de matrícula no login do aluno"
+          git push origin main
