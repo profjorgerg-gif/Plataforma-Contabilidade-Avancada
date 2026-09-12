@@ -9,21 +9,18 @@ service cloud.firestore {
     function myRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
+    function isActiveUser() {
+      return isSignedIn() && myRole() in ['aluno', 'professor', 'admin'];
+    }
     function isProfessorOrAdmin() {
       return isSignedIn() && myRole() in ['professor', 'admin'];
     }
 
-    // Perfil de cada usuário (nome, e-mail, perfil: aluno | professor | admin)
+    // Perfil de cada usuário. Professores novos entram como pending_professor
+    // e somente um Usuário Mestre pode promovê-los a professor.
     match /users/{uid} {
-      allow read: if isSignedIn();
-      // Qualquer usuário autenticado cria o próprio perfil na primeira vez
-      // que entra (o papel escolhido, incluindo "admin" via Código de
-      // Mestre, é decidido pelo próprio app na hora do primeiro login).
+      allow read: if isSignedIn() && (request.auth.uid == uid || myRole() == 'admin');
       allow create: if isSignedIn() && request.auth.uid == uid;
-      // Um usuário pode atualizar o PRÓPRIO documento, desde que não mude
-      // o próprio "role" (evita autopromoção). Só um Usuário Mestre pode
-      // alterar o "role" de qualquer conta, inclusive a de outras pessoas —
-      // é assim que o painel de Usuários funciona.
       allow update: if isSignedIn() && (
         (request.auth.uid == uid && request.resource.data.role == resource.data.role) ||
         myRole() == 'admin'
@@ -31,20 +28,10 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Armazenamento chave-valor genérico usado pelo app (progresso dos
-    // alunos, turmas, mensagens de suporte, log de auditoria). O controle
-    // fino de acesso é feito pelo prefixo da chave (o ID do documento).
+    // Armazenamento pedagógico da plataforma. Contas pending_professor ficam
+    // sem acesso até a aprovação do Usuário Mestre.
     match /kv_store/{key} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-      // Nota: para uma turma real, vale refinar isso por prefixo (ex:
-      // só o próprio aluno grava em "student:<nome-dele>"), mas como a
-      // identificação hoje é pelo nome digitado no cadastro (não pelo
-      // uid), a validação fina fica mais robusta numa próxima etapa,
-      // migrando as chaves de "nome" para "uid". Por ora, qualquer
-      // usuário autenticado (aluno, professor ou admin) pode ler e
-      // escrever — adequado para uso interno de uma turma, não para
-      // dados sensíveis ou uso em produção aberta ao público.
+      allow read, write: if isActiveUser();
     }
   }
 }

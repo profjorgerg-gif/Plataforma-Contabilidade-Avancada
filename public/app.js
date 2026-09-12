@@ -732,8 +732,10 @@ async function kvList(prefix){
 
     // ---- Auditoria / Correções pendentes (professor) ----
     auditLog: [],
-    correcoesPendentes: { incompletos: [], mensagensPendentes: [] },
-    usuarios: []
+    correcoesPendentes: { incompletos: [], mensagensPendentes: [], modulosPendentes: [] },
+    usuarios: [],
+    reportTurmaFilter: '',
+    accessPendingMessage: ''
   };
 
   function emptyProgress(name){
@@ -759,15 +761,22 @@ async function kvList(prefix){
           if (!parsed.modules[m.id]) {
             parsed.modules[m.id] = {
               contentRead:false, exerciseListsDone: new Array(m.exerciseLists.length).fill(false),
-              quizScore:null, quizTotal:m.quiz.length, recoveryScore:null, recoveryTotal:m.recovery.length
+              exerciseScores:new Array(m.exerciseLists.length).fill(null),
+              quizScore:null, quizTotal:m.quiz.length, recoveryScore:null, recoveryTotal:m.recovery.length,
+              correction:{ status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] }
             };
           } else {
             const mp = parsed.modules[m.id];
             if (!Array.isArray(mp.exerciseListsDone)) mp.exerciseListsDone = new Array(m.exerciseLists.length).fill(false);
             while (mp.exerciseListsDone.length < m.exerciseLists.length) mp.exerciseListsDone.push(false);
+            if (!Array.isArray(mp.exerciseScores)) mp.exerciseScores = new Array(m.exerciseLists.length).fill(null);
+            while (mp.exerciseScores.length < m.exerciseLists.length) mp.exerciseScores.push(null);
             if (mp.quizTotal === undefined) mp.quizTotal = m.quiz.length;
             if (mp.recoveryScore === undefined) mp.recoveryScore = null;
             if (mp.recoveryTotal === undefined) mp.recoveryTotal = m.recovery.length;
+            if (!mp.correction) mp.correction = { status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] };
+            if (!Array.isArray(mp.correction.history)) mp.correction.history = [];
+            if (mp.correction.released === undefined) mp.correction.released = mp.correction.status === 'corrigido';
           }
         });
         return parsed;
@@ -887,7 +896,7 @@ async function kvList(prefix){
       const r = await kvGet('support:' + kind + ':' + participantKey);
       if (r && r.value) return JSON.parse(r.value);
     } catch(e){}
-    return { participantName: participantKey, messages: [] };
+    return { participantName: participantKey, protocol:'', status:'aberto', createdAt:null, updatedAt:null, messages: [] };
   }
   async function saveThread(kind, thread){
     try { await kvSet('support:' + kind + ':' + thread.participantName, JSON.stringify(thread)); }
@@ -974,8 +983,11 @@ async function kvList(prefix){
       if (!state.suporteActiveThreadKey) return;
       kind = suporteInboxKind(); participantKey = state.suporteActiveThreadKey;
     }
-    const thread = state.suporteThread || { participantName: participantKey, messages: [] };
+    const thread = state.suporteThread || { participantName: participantKey, protocol:'', status:'aberto', createdAt:null, updatedAt:null, messages: [] };
     thread.participantName = participantKey;
+    if (!thread.protocol){ const d=new Date(); thread.protocol='SUP-'+d.toISOString().slice(0,10).replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,7).toUpperCase(); thread.createdAt=Date.now(); }
+    if (thread.status === 'encerrado') thread.status='aberto';
+    thread.updatedAt=Date.now();
     thread.messages.push({ from: role, name: state.user.name, text, ts: Date.now() });
     await saveThread(kind, thread);
     state.suporteThread = thread;
@@ -1028,9 +1040,54 @@ async function kvList(prefix){
     let mensagensPendentes = [];
     try {
       const threads = await listThreads('aluno-professor');
-      mensagensPendentes = threads.filter(t => t.messages.length && t.messages[t.messages.length-1].from === 'aluno');
+      mensagensPendentes = threads.filter(t => t.status !== 'encerrado' && t.messages.length && t.messages[t.messages.length-1].from === 'aluno');
     } catch(e){}
-    state.correcoesPendentes = { incompletos, mensagensPendentes };
+    const modulosPendentes = [];
+    const roster = await loadRoster();
+    roster.forEach(st => MODULES.forEach(m => {
+      const mp = st.modules && st.modules[m.id]; const c = correctionState(mp);
+      if (c.status === 'em_correcao') modulosPendentes.push({ student:st, module:m, mp, correction:c });
+    }));
+    state.roster = roster;
+    state.correcoesPendentes = { incompletos, mensagensPendentes, modulosPendentes };
+  }
+
+  function correctionState(mp){
+    if (!mp || !mp.correction) return { status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] };
+    return mp.correction;
+  }
+  function statusLabel(status){
+    return ({ liberado:'Em desenvolvimento', em_correcao:'Enviado para correção', ajustes:'Ajustes solicitados', corrigido:'Corrigido' })[status] || 'Em desenvolvimento';
+  }
+  function score10(score,total){
+    if (score === null || score === undefined || !total) return null;
+    return Math.round((Number(score)/Number(total))*100)/10;
+  }
+  function exerciseAverage10(mp){
+    if (!mp || !Array.isArray(mp.exerciseScores)) return null;
+    const vals = mp.exerciseScores.filter(v => v !== null && v !== undefined).map(v => Number(v));
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
+  }
+  function automaticModuleGrade(mp){
+    if (!mp) return null;
+    const ex = exerciseAverage10(mp);
+    const q = score10(mp.quizScore, mp.quizTotal || 10);
+    const r = score10(mp.recoveryScore, mp.recoveryTotal || 10);
+    const avaliacao = r === null ? q : (q === null ? r : Math.max(q,r));
+    if (ex === null && avaliacao === null) return null;
+    if (ex === null) return avaliacao;
+    if (avaliacao === null) return ex;
+    return Math.round(((ex + avaliacao)/2)*10)/10;
+  }
+  function moduleReadyForSubmission(mp, m){
+    return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.length >= m.exerciseLists.length && mp.exerciseScores.slice(0,m.exerciseLists.length).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
+  }
+  function fmtGrade(v){ return (v === null || v === undefined || Number.isNaN(Number(v))) ? '—' : Number(v).toFixed(1).replace('.',','); }
+  function correctionBadge(mp){
+    const c = correctionState(mp);
+    const cls = c.status === 'corrigido' ? 'ok' : (c.status === 'ajustes' ? 'warn' : (c.status === 'em_correcao' ? 'info' : 'neutral'));
+    return `<span class="status-badge ${cls}">${esc(statusLabel(c.status))}</span>`;
   }
 
   function pctModule(mp, m){
@@ -1055,6 +1112,7 @@ async function kvList(prefix){
   function render(){
     if (state.view === 'loading') { root.innerHTML = `<div class="empty-state">Carregando…</div>`; return; }
     if (state.view === 'login') { renderLogin(); return; }
+    if (state.view === 'access-pending') { renderAccessPending(); return; }
 
     const roleLabel = state.user.role === 'professor' ? 'Professor' : (state.user.role === 'admin' ? 'Usuário Mestre' : 'Aluno');
     let inner = `<div class="masthead"><div class="masthead-row">
@@ -1087,7 +1145,7 @@ async function kvList(prefix){
     const role = state.user.role;
     let items;
     if (role === 'aluno') items = [['dashboard','Início'],['notas','Minhas Notas'],['manual','Manual do Aluno'],['suporte','Suporte']];
-    else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:auditoria','Auditoria'],['professor:correcoes','Correções Pendentes'],['manual','Manual do Professor'],['suporte','Suporte']];
+    else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:correcoes','Correções Pendentes'],['professor:relatorios','Relatórios'],['professor:backup','Backup'],['professor:auditoria','Auditoria'],['manual','Manual do Professor'],['suporte','Suporte']];
     else items = [['suporte','Suporte'],['usuarios','Usuários']];
 
     return `<div class="topnav">` + items.map(([key,label]) => {
@@ -1099,6 +1157,22 @@ async function kvList(prefix){
       }
       return `<div class="nav-item ${active?'active':''}" data-nav="${key}">${esc(label)}</div>`;
     }).join('') + `</div>`;
+  }
+
+  function renderAccessPending(){
+    root.innerHTML = `<div class="auth-shell"><div class="auth-left">
+      <div class="auth-brand"><div class="auth-logo">✓</div><div><div class="auth-kicker">CEDUP HERMANN HERING</div><div class="auth-sub">Contabilidade Avançada</div></div></div>
+      <h1>Acesso de Professor<br/>aguardando aprovação</h1>
+      <p class="auth-desc">Sua conta Google foi autenticada, mas o acesso como Professor(a) precisa ser liberado por um Usuário Mestre antes da entrada na plataforma.</p>
+    </div><div class="auth-right"><div class="auth-card">
+      <div class="auth-lockrow">⏳ Solicitação de acesso enviada</div>
+      <p class="auth-hint"><b>Conta:</b> ${esc(state.user && state.user.email ? state.user.email : '')}</p>
+      <p class="auth-hint">Status: <b>Aguardando aprovação</b></p>
+      <button class="auth-gbtn" id="btn-check-access" style="margin-bottom:10px">Verificar liberação</button><button class="auth-gbtn" id="btn-pending-logout">Sair</button>
+    </div></div></div>`;
+    const chk=document.getElementById('btn-check-access'); if(chk) chk.addEventListener('click',async()=>{chk.disabled=true; const snap=await getDoc(doc(db,'users',state.user.uid)); const profile=snap.exists()?snap.data():null; if(profile&&profile.role==='professor'){state.user.role='professor'; state.roster=await loadRoster(); state.turmas=await loadTurmasForProfessor(profile.name); state.professorTab='acompanhamento'; state.view='professor'; render();} else {chk.disabled=false; alert('A solicitação ainda está aguardando aprovação.');}});
+    const b=document.getElementById('btn-pending-logout');
+    if (b) b.addEventListener('click', async()=>{ await signOut(auth); });
   }
 
   function friendlyAuthError(e){
@@ -1201,7 +1275,7 @@ async function kvList(prefix){
           <p>${esc(m.subtitle)}</p>
         </div>
         <div class="module-progress">
-          ${pct}% concluído
+          ${pct}% concluído<br>${correctionBadge(mp)}
           <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         </div>
       </div>`;
@@ -1212,34 +1286,34 @@ async function kvList(prefix){
   // ---- Minhas Notas (aluno) ----
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
-    html += `<div class="note">Pontuação obtida no quiz avaliativo e na recuperação paralela de cada módulo, além do seu progresso geral.</div>`;
-    html += `<table class="roster"><tr><th>Módulo</th><th class="num">Quiz</th><th class="num">Recuperação</th><th class="num">Progresso</th></tr>`;
+    html += `<div class="note">As listas e o quiz são autocorrigidos. A <b>nota automática do módulo</b> considera 50% da média das 5 listas e 50% do melhor resultado entre Quiz e Recuperação. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
+    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Listas</th><th class="num">Quiz</th><th class="num">Recup.</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
     MODULES.forEach(m => {
-      const mp = state.progress.modules[m.id];
-      const quizTxt = (mp.quizScore !== null && mp.quizScore !== undefined) ? `${mp.quizScore}/${mp.quizTotal}` : '—';
-      const recTxt = (mp.recoveryScore !== null && mp.recoveryScore !== undefined) ? `${mp.recoveryScore}/${mp.recoveryTotal}` : '—';
-      html += `<tr><td>${esc(m.title)}</td><td class="num">${quizTxt}</td><td class="num">${recTxt}</td><td class="num">${pctModule(mp,m)}%</td></tr>`;
+      const mp = state.progress.modules[m.id]; const c=correctionState(mp);
+      const quizTxt = score10(mp.quizScore,mp.quizTotal); const recTxt=score10(mp.recoveryScore,mp.recoveryTotal);
+      html += `<tr><td>${esc(m.num+'. '+m.title)}</td><td class="num">${fmtGrade(exerciseAverage10(mp))}</td><td class="num">${fmtGrade(quizTxt)}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(automaticModuleGrade(mp))}</b></td><td>${correctionBadge(mp)}</td><td class="num"><b>${c.released?fmtGrade(c.finalGrade):'—'}</b></td></tr>`;
+      if (c.feedback) html += `<tr><td colspan="7"><div class="feedback-box"><b>Feedback do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
     });
-    html += `</table>`;
+    html += `</table></div>`;
     return html;
   }
 
   // ---- Manual ----
   const MANUAL_ALUNO_HTML = `
     <h4>Como acessar</h4>
-    <p>Entre com seu nome e selecione o perfil "Aluno". Seu progresso é salvo automaticamente a cada ação e fica visível para o professor acompanhar.</p>
+    <p>Entre com sua conta Google e selecione o perfil "Aluno(a)" no primeiro acesso. Seu progresso é salvo automaticamente e fica visível para o professor acompanhar.</p>
     <h4>Módulos</h4>
     <p>No menu "Início" você encontra os 5 módulos da disciplina. Cada módulo tem quatro abas:</p>
     <ul>
       <li><b>Conteúdo</b> — teoria, exemplos numéricos e lançamentos contábeis;</li>
-      <li><b>Exercícios</b> — 5 listas de 10 questões cada (múltipla escolha e Verdadeiro/Falso), com resposta comentada;</li>
+      <li><b>Exercícios</b> — 5 listas de 10 questões cada, autocorrigidas ao enviar cada lista;</li>
       <li><b>Quiz</b> — avaliação única que vale nota, corrigida na hora;</li>
       <li><b>Recuperação</b> — avaliação paralela, com questões diferentes do quiz, que pode ser feita a qualquer momento como prática extra ou para tentar melhorar seu desempenho no módulo.</li>
     </ul>
     <h4>Minhas Notas</h4>
-    <p>No menu superior, "Minhas Notas" mostra, para cada módulo, sua pontuação no quiz e na recuperação, além do seu percentual de progresso geral.</p>
+    <p>No menu superior, "Minhas Notas" mostra média das listas, quiz, recuperação, nota automática, situação da correção e Nota Final quando liberada pelo professor.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
     <h4>Suporte</h4>
-    <p>No menu "Suporte" você pode enviar mensagens diretamente ao professor da disciplina ou à administração da plataforma, e acompanhar as respostas na mesma conversa.</p>
+    <p>No menu "Suporte" você pode abrir chamados ao professor ou à administração. Cada chamado recebe um protocolo, mantém o histórico da conversa e exibe seu status (Aberto/Encerrado).</p>
   `;
   const MANUAL_PROFESSOR_HTML = `
     <h4>Turmas</h4>
@@ -1249,9 +1323,9 @@ async function kvList(prefix){
       <li>Adicionando um aluno por vez, informando nome e matrícula.</li>
     </ul>
     <h4>Notas da Turma</h4>
-    <p>O menu "Notas da Turma" mostra o progresso de todos os alunos que já acessaram a plataforma: percentual de conclusão de cada módulo e uma visão geral por aluno.</p>
+    <p>O menu "Notas da Turma" mostra, por aluno e módulo, a nota automática, a Nota Final liberada e a situação da correção, com exportação em CSV e impressão/PDF.</p><h4>Correções Pendentes</h4><p>Os módulos enviados pelos alunos aparecem em "Correções Pendentes". A nota automática já vem calculada; o professor pode manter ou ajustar a Nota Final, registrar feedback, aprovar/liberar ou devolver o módulo para ajustes.</p><h4>Relatórios e Backup</h4><p>Os menus "Relatórios" e "Backup" permitem exportar acompanhamento em CSV, imprimir/salvar em PDF e gerar backup JSON das turmas e dados pedagógicos vinculados.</p>
     <h4>Suporte</h4>
-    <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, uma caixa de entrada com as conversas iniciadas pelos alunos, onde você pode responder cada uma individualmente; e <b>Administração</b>, seu canal direto para tirar dúvidas ou relatar problemas à administração da plataforma.</p>
+    <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, com chamados identificados por protocolo e status, onde você pode responder, encerrar ou reabrir cada atendimento; e <b>Administração</b>, seu canal direto com a administração da plataforma.</p>
   `;
   function renderManual(){
     const role = state.user.role;
@@ -1263,7 +1337,8 @@ async function kvList(prefix){
   // ---- Suporte (aluno/professor/admin) ----
   function renderThreadConversation(thread, myRole){
     const messages = (thread && thread.messages) ? thread.messages : [];
-    let html = `<div class="chat-box">`;
+    let html = `<div class="support-meta"><div><b>${esc((thread&&thread.protocol)||'Protocolo gerado no primeiro envio')}</b><span class="status-badge ${(thread&&thread.status)==='encerrado'?'neutral':'ok'}">${(thread&&thread.status)==='encerrado'?'Encerrado':'Aberto'}</span></div>${state.user && state.user.role!=='aluno' && thread && thread.protocol ? `<button class="btn-outline small" id="btn-toggle-support-status">${thread.status==='encerrado'?'Reabrir chamado':'Encerrar chamado'}</button>`:''}</div>`;
+    html += `<div class="chat-box">`;
     if (!messages.length){
       html += `<div class="empty-state" style="padding:24px">Nenhuma mensagem ainda. Envie a primeira mensagem abaixo.</div>`;
     } else {
@@ -1290,8 +1365,8 @@ async function kvList(prefix){
       const last = t.messages.length ? t.messages[t.messages.length-1] : null;
       html += `<div class="thread-row" data-thread="${esc(t.participantName)}">
         <div>
-          <b>${esc(t.participantName)}</b>
-          <div class="thread-preview">${last ? esc(last.text.slice(0,70)) : 'Sem mensagens ainda'}</div>
+          <b>${esc(t.participantName)}</b> <span class="status-badge ${t.status==='encerrado'?'neutral':'ok'}">${t.status==='encerrado'?'Encerrado':'Aberto'}</span>
+          <div class="thread-preview">${t.protocol?esc(t.protocol)+' · ':''}${last ? esc(last.text.slice(0,70)) : 'Sem mensagens ainda'}</div>
         </div>
         <span class="back-link">Abrir →</span>
       </div>`;
@@ -1318,7 +1393,7 @@ async function kvList(prefix){
       html += `<div class="empty-state">Nenhum usuário encontrado ainda.</div>`;
       return html;
     }
-    html += `<table class="roster"><tr><th>Nome</th><th>E-mail</th><th>Perfil</th></tr>`;
+    html += `<table class="roster"><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Status</th><th>Ação</th></tr>`;
     usuarios.forEach(u => {
       html += `<tr>
         <td>${esc(u.name || '—')}</td>
@@ -1326,10 +1401,13 @@ async function kvList(prefix){
         <td>
           <select data-user-role="${esc(u.id)}">
             <option value="aluno" ${u.role==='aluno'?'selected':''}>Aluno(a)</option>
+            <option value="pending_professor" ${u.role==='pending_professor'?'selected':''}>Professor(a) — pendente</option>
             <option value="professor" ${u.role==='professor'?'selected':''}>Professor(a)</option>
             <option value="admin" ${u.role==='admin'?'selected':''}>Usuário Mestre</option>
           </select>
         </td>
+        <td>${u.role==='pending_professor'?'<span class="status-badge warn">Aguardando aprovação</span>':'<span class="status-badge ok">Ativo</span>'}</td>
+        <td>${u.role==='pending_professor'?`<button class="btn-outline small" data-approve-prof="${esc(u.id)}">Aprovar Professor</button>`:'—'}</td>
       </tr>`;
     });
     html += `</table>`;
@@ -1366,6 +1444,8 @@ async function kvList(prefix){
     if (state.professorTab === 'turmas') return renderTurmasSection();
     if (state.professorTab === 'auditoria') return renderAuditoria();
     if (state.professorTab === 'correcoes') return renderCorrecoesPendentes();
+    if (state.professorTab === 'relatorios') return renderRelatorios();
+    if (state.professorTab === 'backup') return renderBackup();
     return renderAcompanhamento();
   }
 
@@ -1387,64 +1467,57 @@ async function kvList(prefix){
   }
 
   function renderCorrecoesPendentes(){
-    const data = state.correcoesPendentes || { incompletos: [], mensagensPendentes: [] };
+    const data = state.correcoesPendentes || { incompletos: [], mensagensPendentes: [], modulosPendentes: [] };
     let html = `<div class="section-title">Correções pendentes</div>`;
-    html += `<div class="note">Itens que precisam da sua atenção: cadastros de alunos incompletos nas turmas e mensagens de suporte de alunos ainda sem resposta.</div>`;
+    html += `<div class="note">Módulos enviados pelos alunos para revisão, além de inconsistências cadastrais e mensagens aguardando resposta.</div>`;
+    html += `<h4 style="margin:18px 0 8px">Módulos aguardando revisão (${(data.modulosPendentes||[]).length})</h4>`;
+    if (!(data.modulosPendentes||[]).length) html += `<div class="empty-state">Nenhum módulo aguardando correção.</div>`;
+    else (data.modulosPendentes||[]).forEach((it,idx)=>{
+      const auto=automaticModuleGrade(it.mp); const c=it.correction;
+      html += `<div class="review-card"><div class="review-head"><div><b>${esc(it.student.name)}</b><div class="thread-preview">M${it.module.num} — ${esc(it.module.title)}</div></div>${correctionBadge(it.mp)}</div>
+        <div class="review-grid"><div><span>Média listas</span><b>${fmtGrade(exerciseAverage10(it.mp))}</b></div><div><span>Quiz</span><b>${fmtGrade(score10(it.mp.quizScore,it.mp.quizTotal))}</b></div><div><span>Recuperação</span><b>${fmtGrade(score10(it.mp.recoveryScore,it.mp.recoveryTotal))}</b></div><div><span>Nota automática</span><b>${fmtGrade(auto)}</b></div></div>
+        <label>Nota Final (0,0 a 10,0)</label><input type="number" min="0" max="10" step="0.1" class="grade-input" data-grade-input="${idx}" value="${auto===null?'':auto}">
+        <label>Feedback ao aluno</label><textarea class="review-feedback" data-feedback-input="${idx}" placeholder="Feedback opcional">${esc(c.feedback||'')}</textarea>
+        <div class="review-actions"><button class="btn-outline" data-return-module="${idx}">Devolver para ajustes</button><button class="btn-brass" data-approve-module="${idx}">Aprovar e liberar nota</button></div>
+      </div>`;
+    });
 
-    html += `<h4 style="margin:18px 0 8px">Cadastros de alunos a corrigir (${data.incompletos.length})</h4>`;
-    if (!data.incompletos.length){
-      html += `<div class="empty-state">Nenhum cadastro pendente de correção.</div>`;
-    } else {
-      html += `<table class="roster"><tr><th>Turma</th><th>Nome</th><th>Matrícula</th><th></th></tr>`;
-      data.incompletos.forEach(it => {
-        html += `<tr>
-          <td>${esc(it.turmaName)}</td>
-          <td>${esc(it.nome || '—')}</td>
-          <td>${esc(it.matricula || '—')}</td>
-          <td><span class="link-btn" data-fix-turma="${esc(it.turmaId)}" style="color:var(--brass)">corrigir →</span></td>
-        </tr>`;
-      });
-      html += `</table>`;
-    }
-
+    html += `<h4 style="margin:26px 0 8px">Cadastros de alunos a corrigir (${data.incompletos.length})</h4>`;
+    if (!data.incompletos.length) html += `<div class="empty-state">Nenhum cadastro pendente de correção.</div>`;
+    else { html += `<table class="roster"><tr><th>Turma</th><th>Nome</th><th>Matrícula</th><th></th></tr>`; data.incompletos.forEach(it=>{html += `<tr><td>${esc(it.turmaName)}</td><td>${esc(it.nome||'—')}</td><td>${esc(it.matricula||'—')}</td><td><span class="link-btn" data-fix-turma="${esc(it.turmaId)}" style="color:var(--brass)">corrigir →</span></td></tr>`}); html += `</table>`; }
     html += `<h4 style="margin:26px 0 8px">Mensagens de alunos aguardando resposta (${data.mensagensPendentes.length})</h4>`;
-    if (!data.mensagensPendentes.length){
-      html += `<div class="empty-state">Nenhuma mensagem pendente.</div>`;
-    } else {
-      data.mensagensPendentes.forEach(t => {
-        const last = t.messages[t.messages.length-1];
-        html += `<div class="thread-row" data-goto-thread="${esc(t.participantName)}">
-          <div>
-            <b>${esc(t.participantName)}</b>
-            <div class="thread-preview">${esc(last.text.slice(0,70))}</div>
-          </div>
-          <span class="back-link">Responder →</span>
-        </div>`;
-      });
-    }
+    if (!data.mensagensPendentes.length) html += `<div class="empty-state">Nenhuma mensagem pendente.</div>`;
+    else data.mensagensPendentes.forEach(t=>{const last=t.messages[t.messages.length-1]; html += `<div class="thread-row" data-goto-thread="${esc(t.participantName)}"><div><b>${esc(t.participantName)}</b><div class="thread-preview">${esc(last.text.slice(0,70))}</div></div><span class="back-link">Responder →</span></div>`;});
     return html;
   }
 
   function renderAcompanhamento(){
     const roster = state.roster || [];
-    let html = `<div class="note">Esta visão reúne o progresso de todos os alunos que já entraram na plataforma, incluindo notas do quiz e da recuperação de cada módulo.</div>`;
-    html += `<div class="section-title">Acompanhamento (${roster.length} aluno${roster.length===1?'':'s'})</div>`;
-    if (roster.length === 0){
-      html += `<div class="empty-state">Nenhum aluno entrou na plataforma ainda.<br>Compartilhe o link com a turma para começar a acompanhar o progresso.</div>`;
-      return html;
-    }
-    html += `<table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Geral</th></tr>`;
-    roster.sort((a,b)=> overallPct(b)-overallPct(a));
-    roster.forEach(st => {
-      html += `<tr><td>${esc(st.name)}</td>`;
-      MODULES.forEach(m => {
-        html += `<td class="num">${pctModule(st.modules[m.id], m)}%</td>`;
-      });
-      html += `<td class="num"><b>${overallPct(st)}%</b></td></tr>`;
+    let html = `<div class="note">Notas por módulo: valor em destaque = Nota Final liberada; quando ainda não liberada, é exibida a nota automática com indicação da situação.</div>`;
+    html += `<div class="section-title">Notas da Turma (${roster.length} aluno${roster.length===1?'':'s'})</div>`;
+    html += `<div class="toolbar"><button class="btn-outline" id="btn-print-report">Imprimir / Salvar PDF</button><button class="btn-brass" id="btn-export-grades">Exportar CSV</button></div>`;
+    if (!roster.length) return html + `<div class="empty-state">Nenhum aluno entrou na plataforma ainda.</div>`;
+    html += `<div class="table-scroll"><table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Média</th></tr>`;
+    roster.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(st=>{
+      let released=[]; html += `<tr><td>${esc(st.name)}</td>`;
+      MODULES.forEach(m=>{const mp=st.modules[m.id]; const c=correctionState(mp); const v=c.released?c.finalGrade:automaticModuleGrade(mp); if(c.released&&v!==null) released.push(Number(v)); html += `<td class="num"><b>${fmtGrade(v)}</b><div class="cell-status">${c.released?'Liberada':statusLabel(c.status)}</div></td>`;});
+      const avg=released.length?released.reduce((a,b)=>a+b,0)/released.length:null; html += `<td class="num"><b>${fmtGrade(avg)}</b></td></tr>`;
     });
-    html += `</table>`;
-    html += `<div class="note" style="margin-top:14px">Legenda: percentual considera leitura do conteúdo, as 5 listas de exercícios concluídas e a realização do quiz de cada módulo. A recuperação é opcional e não altera esse percentual.</div>`;
-    return html;
+    html += `</table></div>`; return html;
+  }
+
+  function csvEscape(v){ return '"'+String(v===null||v===undefined?'':v).replace(/"/g,'""')+'"'; }
+  function downloadText(filename,text,type){ const blob=new Blob([text],{type:type||'text/plain;charset=utf-8'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
+  function gradesCsv(){
+    const rows=[['Aluno',...MODULES.map(m=>'M'+m.num+' Nota Final'),...MODULES.map(m=>'M'+m.num+' Status'),'Média Final']];
+    (state.roster||[]).forEach(st=>{let vals=[], rel=[]; MODULES.forEach(m=>{const c=correctionState(st.modules[m.id]); vals.push(c.released?fmtGrade(c.finalGrade):''); if(c.released&&c.finalGrade!==null) rel.push(Number(c.finalGrade));}); const sts=MODULES.map(m=>statusLabel(correctionState(st.modules[m.id]).status)); rows.push([st.name,...vals,...sts,rel.length?fmtGrade(rel.reduce((a,b)=>a+b,0)/rel.length):'']);});
+    return '\ufeff'+rows.map(r=>r.map(csvEscape).join(';')).join('\n');
+  }
+  function renderRelatorios(){
+    return `<div class="section-title">Relatórios</div><div class="note">Relatório consolidado das notas e situações de correção. Use CSV para planilha ou impressão para gerar PDF.</div>` + renderAcompanhamento();
+  }
+  function renderBackup(){
+    return `<div class="section-title">Backup</div><div class="note">Gera um arquivo JSON com as turmas deste professor e os registros pedagógicos dos alunos que constam nessas turmas. O arquivo não altera nem apaga dados do Firestore.</div><div class="card-box"><h4>Backup pedagógico</h4><p class="desc">Inclui turmas, alunos cadastrados nas turmas e progresso/notas disponíveis.</p><button class="btn-brass" id="btn-export-backup">Gerar backup JSON</button></div>`;
   }
 
   function renderTurmasSection(){
@@ -1571,20 +1644,12 @@ async function kvList(prefix){
 
   function renderExerciseItem(it, idx){
     let optsHtml = '';
-    let answerText = '';
     if (it.type === 'mc'){
-      optsHtml = `<div class="opts">` + it.opts.map((o,i)=>`${String.fromCharCode(97+i)}) ${esc(o)}`).join('<br>') + `</div>`;
-      answerText = `Alternativa correta: <b>${String.fromCharCode(97+it.correct)}) ${esc(it.opts[it.correct])}</b>`;
+      optsHtml = `<div class="exercise-choices">` + it.opts.map((o,i)=>`<label class="quiz-opt"><input type="radio" name="e${idx}" value="${i}" required> <span>${String.fromCharCode(97+i)}) ${esc(o)}</span></label>`).join('') + `</div>`;
     } else {
-      optsHtml = `<div class="opts">( &nbsp;) Verdadeiro &nbsp;&nbsp;&nbsp; ( &nbsp;) Falso</div>`;
-      answerText = `Resposta correta: <b>${it.correct ? 'Verdadeiro' : 'Falso'}</b>`;
+      optsHtml = `<div class="exercise-choices"><label class="quiz-opt"><input type="radio" name="e${idx}" value="1" required> Verdadeiro</label><label class="quiz-opt"><input type="radio" name="e${idx}" value="0" required> Falso</label></div>`;
     }
-    if (it.note) answerText += ` — ${esc(it.note)}`;
-    return `<div class="exercise">
-      <div class="stmt"><span class="tag">${it.type==='mc'?'Múltipla escolha':'V / F'}</span><b>${idx+1}.</b> ${esc(it.q)}</div>
-      ${optsHtml}
-      <details class="answer"><summary>Ver resposta</summary><div class="resp">${answerText}</div></details>
-    </div>`;
+    return `<div class="exercise"><div class="stmt"><span class="tag">${it.type==='mc'?'Múltipla escolha':'V / F'}</span><b>${idx+1}.</b> ${esc(it.q)}</div>${optsHtml}</div>`;
   }
 
   function renderModule(){
@@ -1616,10 +1681,15 @@ async function kvList(prefix){
       sub += `</div>`;
       html += sub;
       const list = m.exerciseLists[state.activeExerciseList];
-      html += `<h4 style="margin-top:0">${esc(list.title)} <span style="font-weight:400;color:var(--ink-soft);font-size:13px">— 10 questões</span></h4>`;
-      list.items.forEach((it,idx) => { html += renderExerciseItem(it, idx); });
-      const done = mp.exerciseListsDone[state.activeExerciseList];
-      html += `<button class="mark-btn" id="btn-list-done" ${done?'disabled':''}>${done ? '✓ Lista concluída' : 'Marcar esta lista como concluída'}</button>`;
+      const listScore = mp.exerciseScores[state.activeExerciseList];
+      html += `<h4 style="margin-top:0">${esc(list.title)} <span style="font-weight:400;color:var(--ink-soft);font-size:13px">— 10 questões · autocorreção</span></h4>`;
+      if (listScore !== null && listScore !== undefined){
+        html += `<div class="quiz-score">Lista concluída. Resultado: <b>${fmtGrade(listScore)} / 10,0</b>.</div>`;
+      } else {
+        html += `<form id="exercise-form">`;
+        list.items.forEach((it,idx) => { html += renderExerciseItem(it, idx); });
+        html += `<button class="mark-btn" type="submit">Corrigir lista</button></form>`;
+      }
 
     } else if (state.activeTab === 'quiz'){
       if (mp.quizScore !== null){
@@ -1652,6 +1722,14 @@ async function kvList(prefix){
         html += `<button type="submit" class="mark-btn">Corrigir recuperação</button></form>`;
       }
     }
+    const corr = correctionState(mp);
+    html += `<div class="module-correction"><h4>Fluxo de correção do módulo</h4><div style="margin-bottom:8px">${correctionBadge(mp)}</div>`;
+    if (corr.feedback) html += `<div class="feedback-box"><b>Feedback do professor:</b> ${esc(corr.feedback)}</div>`;
+    if (corr.status === 'corrigido' && corr.released) html += `<div class="quiz-score">Nota Final liberada: <b>${fmtGrade(corr.finalGrade)} / 10,0</b></div>`;
+    else if (corr.status === 'em_correcao') html += `<p class="thread-preview">Enviado em ${corr.submittedAt?new Date(corr.submittedAt).toLocaleString('pt-BR'):'—'}. Aguarde a revisão do professor.</p>`;
+    else if (moduleReadyForSubmission(mp,m)) html += `<p class="thread-preview">Nota automática atual: <b>${fmtGrade(automaticModuleGrade(mp))}</b>. Envie o módulo para o professor revisar e liberar a Nota Final.</p><button class="btn-brass" id="btn-submit-module">Enviar módulo para correção</button>`;
+    else html += `<p class="thread-preview">Conclua o conteúdo, as 5 listas autocorrigidas e o quiz para poder enviar o módulo à correção.</p>`;
+    html += `</div>`;
     html += `</div>`;
     return html;
   }
@@ -1665,6 +1743,7 @@ async function kvList(prefix){
       state.suporteTab = null; state.suporteThread = null; state.suporteInbox = null;
       state.suporteActiveThreadKey = null; state.suporteNewMessage = '';
       state.authError = ''; state.masterCode = ''; state.signupRole = 'aluno';
+      await logAudit('logout', `${state.user ? state.user.name : 'Usuário'} saiu da plataforma.`);
       await signOut(auth);
       // onAuthStateChanged cuida de limpar state.user e voltar para a tela de login.
     });
@@ -1697,12 +1776,19 @@ async function kvList(prefix){
       render();
     });
 
-    const btnListDone = document.getElementById('btn-list-done');
-    if (btnListDone) btnListDone.addEventListener('click', async () => {
-      state.progress.modules[state.activeModuleId].exerciseListsDone[state.activeExerciseList] = true;
-      await saveProgress(state.progress);
-      render();
+    const exerciseForm = document.getElementById('exercise-form');
+    if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const m=MODULES.find(x=>x.id===state.activeModuleId), list=m.exerciseLists[state.activeExerciseList], fd=new FormData(exerciseForm); let score=0, results=[];
+      list.items.forEach((it,i)=>{const raw=fd.get('e'+i); let ok=false, correctText=''; if(it.type==='mc'){const chosen=raw===null?-1:parseInt(raw,10); ok=chosen===it.correct; correctText=it.opts[it.correct];} else {const chosen=raw==='1'; ok=chosen===it.correct; correctText=it.correct?'Verdadeiro':'Falso';} if(ok) score++; results.push({ok,correctText,note:it.note||''});});
+      const mp=state.progress.modules[state.activeModuleId]; mp.exerciseScores[state.activeExerciseList]=score; mp.exerciseListsDone[state.activeExerciseList]=true; await saveProgress(state.progress); await logAudit('lista_autocorrigida',`${state.user.name} concluiu a Lista ${state.activeExerciseList+1} do módulo "${m.title}" — ${score}/10.`);
+      let out=`<div class="quiz-score">Resultado: <b>${score} de 10</b> acertos — nota <b>${fmtGrade(score)} / 10,0</b>.</div>`;
+      list.items.forEach((it,i)=>{const r=results[i]; out+=`<div class="quiz-q"><p class="q">${i+1}. ${esc(it.q)}</p><div class="quiz-result ${r.ok?'ok':'bad'}">${r.ok?'✓ Correto.':'✗ Resposta correta: '+esc(r.correctText)+'.'} ${esc(r.note)}</div></div>`;});
+      exerciseForm.parentElement.innerHTML=out;
     });
+
+    const btnSubmitModule=document.getElementById('btn-submit-module');
+    if(btnSubmitModule) btnSubmitModule.addEventListener('click',async()=>{const m=MODULES.find(x=>x.id===state.activeModuleId),mp=state.progress.modules[m.id],c=correctionState(mp); c.status='em_correcao'; c.submittedAt=Date.now(); c.feedback=''; c.released=false; c.history.push({type:'envio',ts:Date.now(),autoGrade:automaticModuleGrade(mp)}); mp.correction=c; await saveProgress(state.progress); await logAudit('modulo_enviado_correcao',`${state.user.name} enviou o módulo "${m.title}" para correção.`); render();});
 
     const quizForm = document.getElementById('quiz-form');
     if (quizForm) quizForm.addEventListener('submit', async (e) => {
@@ -1956,6 +2042,21 @@ async function kvList(prefix){
     const btnSendSuporte = document.getElementById('btn-send-suporte');
     if (btnSendSuporte) btnSendSuporte.addEventListener('click', async () => { await sendSuporteMessage(); });
 
+    document.querySelectorAll('[data-approve-module]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const idx=parseInt(btn.getAttribute('data-approve-module'),10), it=(state.correcoesPendentes.modulosPendentes||[])[idx]; if(!it)return;
+      const gi=document.querySelector(`[data-grade-input="${idx}"]`), fi=document.querySelector(`[data-feedback-input="${idx}"]`); const grade=Math.max(0,Math.min(10,parseFloat((gi&&gi.value)||automaticModuleGrade(it.mp)||0))); const feedback=(fi&&fi.value||'').trim();
+      const c=correctionState(it.mp); c.status='corrigido'; c.reviewedAt=Date.now(); c.feedback=feedback; c.finalGrade=Math.round(grade*10)/10; c.released=true; c.history.push({type:'aprovacao',ts:Date.now(),grade:c.finalGrade,feedback}); it.mp.correction=c; await saveProgress(it.student); await logAudit('modulo_aprovado',`${state.user.name} aprovou o módulo "${it.module.title}" de ${it.student.name} — Nota Final ${fmtGrade(c.finalGrade)}.`); await loadCorrecoesPendentes(); render();
+    }));
+    document.querySelectorAll('[data-return-module]').forEach(btn=>btn.addEventListener('click',async()=>{
+      const idx=parseInt(btn.getAttribute('data-return-module'),10), it=(state.correcoesPendentes.modulosPendentes||[])[idx]; if(!it)return; const fi=document.querySelector(`[data-feedback-input="${idx}"]`); const feedback=(fi&&fi.value||'').trim()||'Revise o módulo e realize novamente as atividades avaliativas indicadas.';
+      const c=correctionState(it.mp); c.status='ajustes'; c.reviewedAt=Date.now(); c.feedback=feedback; c.released=false; c.finalGrade=null; c.history.push({type:'devolucao',ts:Date.now(),feedback}); it.mp.exerciseScores=new Array(it.module.exerciseLists.length).fill(null); it.mp.exerciseListsDone=new Array(it.module.exerciseLists.length).fill(false); it.mp.quizScore=null; it.mp.recoveryScore=null; it.mp.correction=c; await saveProgress(it.student); await logAudit('modulo_devolvido',`${state.user.name} devolveu o módulo "${it.module.title}" de ${it.student.name} para ajustes.`); await loadCorrecoesPendentes(); render();
+    }));
+    const exportGrades=document.getElementById('btn-export-grades'); if(exportGrades) exportGrades.addEventListener('click',()=>downloadText('notas_contabilidade_avancada.csv',gradesCsv(),'text/csv;charset=utf-8'));
+    const printReport=document.getElementById('btn-print-report'); if(printReport) printReport.addEventListener('click',()=>window.print());
+    const exportBackup=document.getElementById('btn-export-backup'); if(exportBackup) exportBackup.addEventListener('click',()=>{const names=new Set(); (state.turmas||[]).forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim()))); const alunos=(state.roster||[]).filter(r=>names.size===0||names.has((r.name||'').trim())); const payload={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),professor:state.user.name,turmas:state.turmas,alunos}; downloadText(`backup_contabilidade_avancada_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json;charset=utf-8'); logAudit('backup_exportado',`${state.user.name} gerou backup pedagógico.`);});
+
+    const toggleSupport=document.getElementById('btn-toggle-support-status'); if(toggleSupport) toggleSupport.addEventListener('click',async()=>{const thread=state.suporteThread; if(!thread)return; thread.status=thread.status==='encerrado'?'aberto':'encerrado'; thread.updatedAt=Date.now(); const kind = state.user.role==='professor' ? (state.suporteTab==='alunos'?'aluno-professor':'professor-admin') : suporteInboxKind(); await saveThread(kind,thread); await logAudit('status_suporte',`${state.user.name} alterou o chamado ${thread.protocol||''} para ${thread.status}.`); if((state.user.role==='professor'&&state.suporteTab==='alunos')||state.user.role==='admin') state.suporteInbox=await listThreads(suporteInboxKind()); render();});
+
     // ---- Usuários (painel do Usuário Mestre) ----
     document.querySelectorAll('[data-user-role]').forEach(sel => {
       sel.addEventListener('change', async (e) => {
@@ -1972,6 +2073,11 @@ async function kvList(prefix){
         sel.disabled = false;
       });
     });
+    document.querySelectorAll('[data-approve-prof]').forEach(btn => btn.addEventListener('click', async()=>{
+      const uid=btn.getAttribute('data-approve-prof'); btn.disabled=true;
+      try { await updateDoc(doc(db,'users',uid),{role:'professor',status:'approved',approvedAt:Date.now(),approvedBy:state.user.uid}); await logAudit('professor_aprovado',`${state.user.name} aprovou um novo acesso de Professor.`); await loadUsuarios(); render(); }
+      catch(err){ alert('Não foi possível aprovar: '+(err&&err.message?err.message:'erro desconhecido')); btn.disabled=false; }
+    }));
   }
 
   // ---- Init ----
@@ -1987,11 +2093,9 @@ async function kvList(prefix){
         } else {
           // Primeira vez que esta conta entra: cria o perfil com o papel
           // escolhido na tela de login (e o Código de Mestre, se informado).
-          let role = state.signupRole === 'professor' ? 'professor' : 'aluno';
-          if (state.masterCode && MASTER_CODE && state.masterCode === MASTER_CODE){
-            role = 'admin';
-          }
-          profile = { name: fbUser.displayName || fbUser.email || 'Usuário', email: fbUser.email || '', role };
+          let role = state.signupRole === 'professor' ? 'pending_professor' : 'aluno';
+          if (state.masterCode && MASTER_CODE && state.masterCode === MASTER_CODE) role = 'admin';
+          profile = { name: fbUser.displayName || fbUser.email || 'Usuário', email: fbUser.email || '', role, status: role==='pending_professor'?'pending':'active', createdAt:Date.now() };
           await setDoc(userRef, profile);
         }
       } catch(e){
@@ -2003,9 +2107,11 @@ async function kvList(prefix){
         await signOut(auth);
         return;
       }
-      state.user = { name: profile.name, role: profile.role, uid: fbUser.uid };
+      state.user = { name: profile.name, email: profile.email || fbUser.email || '', role: profile.role, uid: fbUser.uid };
       state.authError = ''; state.masterCode = '';
-      if (profile.role === 'professor'){
+      await logAudit('login', `${profile.name || fbUser.email || 'Usuário'} realizou login na plataforma.`);
+      if (profile.role === 'pending_professor'){ state.view='access-pending'; }
+      else if (profile.role === 'professor'){
         state.roster = await loadRoster();
         state.turmas = await loadTurmasForProfessor(profile.name);
         state.professorTab = state.professorTab || 'acompanhamento';
