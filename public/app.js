@@ -1252,7 +1252,11 @@ async function kvList(prefix){
     return !!(mp && Array.isArray(mp.exerciseScores) && mp.exerciseScores.slice(0,5).length === 5 && mp.exerciseScores.slice(0,5).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined && mp.recoveryScore !== null && mp.recoveryScore !== undefined);
   }
   function fmtGrade(v){ return (v === null || v === undefined || Number.isNaN(Number(v))) ? '—' : Number(v).toFixed(1).replace('.',','); }
-  function moduleStatusLabel(mp){
+  function moduleStatusLabel(mp, m){
+    if (m){
+      const access=moduleAccess(m);
+      if (access.locked) return 'Bloqueado — aguardando liberação';
+    }
     if (!moduleCompleted(mp)) return 'Em andamento';
     return correctionState(mp).released ? 'Concluído / Liberado' : 'Aguardando liberação';
   }
@@ -1461,7 +1465,7 @@ async function kvList(prefix){
       html += `<div class="module-row ${access.locked?'locked':''}" style="--mcolor:${m.color}" data-module="${m.id}" data-locked="${access.locked?'1':'0'}">
         <div class="module-num serif">${String(m.num).padStart(2,'0')}</div>
         <div class="module-info">
-          <h3>${esc(m.title)} ${access.locked?'<span class="status-badge neutral">Bloqueado</span>':''}</h3>
+          <h3>${esc(m.title)} ${access.locked?'<span class="status-badge neutral">🔒 Bloqueado — aguardando liberação</span>':''}</h3>
           <p>${esc(m.subtitle)}</p><div class="deadline-text">${esc(access.locked?access.reason:moduleDeadlineText(m))}</div>
         </div>
         <div class="module-progress">
@@ -1492,7 +1496,9 @@ async function kvList(prefix){
       const quizReplaced = !!(adjusted.replaced && adjusted.replaced[5]);
       const quizCell = adjusted.quiz === null || adjusted.quiz === undefined ? '—' : (quizReplaced ? `${fmtGrade(quizTxt)} → <b>${fmtGrade(adjusted.quiz)}</b>` : fmtGrade(adjusted.quiz));
       const grade = moduleReadyForSubmission(mp,m) ? effectiveModuleGrade(mp) : null;
-      html += `<tr><td>${esc(m.num+'. '+m.title)}</td>${exerciseCells}<td class="num">${quizCell}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(grade)}</b></td><td>${moduleStatusLabel(mp)}</td></tr>`;
+      const access=moduleAccess(m);
+      const situation=access.locked ? `<span class="status-badge neutral">Bloqueado</span><div class="cell-status">Aguardando liberação do professor</div>` : moduleStatusLabel(mp,m);
+      html += `<tr><td>${esc(m.num+'. '+m.title)}${access.locked?' <span class="status-badge neutral">🔒 Bloqueado</span>':''}</td>${exerciseCells}<td class="num">${quizCell}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(grade)}</b></td><td>${situation}</td></tr>`;
       if (c.feedback) html += `<tr><td colspan="10"><div class="feedback-box"><b>Registro anterior do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
     });
     html += `</table></div>`;
