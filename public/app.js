@@ -1160,7 +1160,14 @@ async function kvList(prefix){
     });
   }
   function exerciseAverage10(mp){
-    const vals = effectiveExerciseScores10(mp).filter(v => v !== null && v !== undefined);
+    if (!mp || !Array.isArray(mp.exerciseScores)) return null;
+    const recovery = score10(mp.recoveryScore, mp.recoveryTotal || 10);
+    const vals = mp.exerciseScores
+      .filter(v => v !== null && v !== undefined)
+      .map(v => {
+        const original = Number(v);
+        return recovery !== null && recovery > original ? recovery : original;
+      });
     if (!vals.length) return null;
     return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
   }
@@ -1168,12 +1175,10 @@ async function kvList(prefix){
     if (!mp) return null;
     const ex = exerciseAverage10(mp);
     const q = score10(mp.quizScore, mp.quizTotal || 10);
-    const r = score10(mp.recoveryScore, mp.recoveryTotal || 10);
-    const avaliacao = r === null ? q : (q === null ? r : Math.max(q,r));
-    if (ex === null && avaliacao === null) return null;
-    if (ex === null) return avaliacao;
-    if (avaliacao === null) return ex;
-    return Math.round(((ex + avaliacao)/2)*10)/10;
+    if (ex === null && q === null) return null;
+    if (ex === null) return q;
+    if (q === null) return ex;
+    return Math.round(((ex + q)/2)*10)/10;
   }
   function effectiveModuleGrade(mp){
     const base=baseAutomaticModuleGrade(mp); if(base===null) return null;
@@ -1449,7 +1454,7 @@ async function kvList(prefix){
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
     html += `<div class="note">As 5 listas aparecem individualmente. Quando a <b>nota da Recuperação</b> for superior à nota de uma lista, ela <b>substitui a nota inferior</b> para efeito da média e da nota automática. As notas substituídas aparecem com <b>*</b>. A nota automática do módulo considera 50% da média das 5 listas já ajustadas e 50% do melhor resultado entre Quiz e Recuperação. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
-    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recup.</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
+    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recup. (substit.)</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
     MODULES.forEach(m => {
       const mp = state.progress.modules[m.id]; const c=correctionState(mp);
       const quizTxt = score10(mp.quizScore,mp.quizTotal); const recTxt=score10(mp.recoveryScore,mp.recoveryTotal);
@@ -1479,7 +1484,7 @@ async function kvList(prefix){
       <li><b>Conteúdo</b> — teoria, exemplos numéricos e lançamentos contábeis;</li>
       <li><b>Exercícios</b> — 5 listas de 10 questões cada, realizadas obrigatoriamente em sequência. Após corrigir uma lista, a nota fica registrada, ela passa a constar como "Feita" e não pode ser refeita; somente então a lista seguinte é liberada;</li>
       <li><b>Quiz</b> — avaliação única que vale nota, corrigida na hora;</li>
-      <li><b>Recuperação</b> — avaliação paralela, com questões diferentes do quiz, que pode ser feita a qualquer momento como prática extra ou para tentar melhorar seu desempenho no módulo.</li>
+      <li><b>Recuperação</b> — avaliação paralela que não entra diretamente na média. Sua nota substitui, para efeito de cálculo, cada nota das listas de exercícios que seja inferior a ela; o Quiz permanece independente.</li>
     </ul>
     <h4>Minhas Notas</h4>
     <p>No menu superior, "Minhas Notas" mostra a nota de cada uma das 5 listas, Quiz, Recuperação, nota automática, situação da correção e Nota Final quando liberada pelo professor. Quando a nota da Recuperação for superior à nota de uma lista, a Recuperação substitui aquela nota inferior para o cálculo da média e da nota automática; a substituição é identificada com *.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
@@ -1893,7 +1898,7 @@ async function kvList(prefix){
       }
 
     } else if (state.activeTab === 'recuperacao'){
-      html += `<div class="recovery-intro">A recuperação é uma avaliação paralela, com questões diferentes do quiz principal. Pode ser feita a qualquer momento, como prática extra ou para tentar melhorar seu desempenho neste módulo.</div>`;
+      html += `<div class="recovery-intro">A recuperação é uma avaliação paralela e não entra diretamente na média do módulo. Quando realizada, sua nota substitui, apenas para efeito de cálculo, as notas das listas de exercícios que forem inferiores a ela. O Quiz mantém sua própria nota e não é substituído pela Recuperação.</div>`;
       if (mp.recoveryScore !== null){
         html += `<div class="quiz-score">Recuperação já realizada. Resultado: <b>${mp.recoveryScore} de ${mp.recoveryTotal}</b> acertos.</div>`;
       } else {
