@@ -31,7 +31,13 @@ service cloud.firestore {
     // Armazenamento pedagógico da plataforma. Contas pending_professor ficam
     // sem acesso até a aprovação do Usuário Mestre.
     match /kv_store/{key} {
-      allow read, write: if isActiveUser();
+      // Planejamentos são documentos internos do Professor. Cada professor acessa
+      // apenas as próprias chaves (prefixadas pelo UID); o Usuário Mestre mantém acesso.
+      allow read, write: if isActiveUser() && (
+        !key.matches('^planning:.*') ||
+        myRole() == 'admin' ||
+        (myRole() == 'professor' && key.matches('^planning:' + request.auth.uid + ':.*'))
+      );
     }
   }
 }
