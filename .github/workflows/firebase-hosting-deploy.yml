@@ -17,15 +17,9 @@ jobs:
           printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "${RUNNER_TEMP}/firebase-service-account.json"
 
       - name: Publicar regras do Firestore
-        id: firestore_rules
-        continue-on-error: true
         run: npx --yes firebase-tools@latest deploy --only firestore:rules --project ca-contabilidade-avancada --non-interactive
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
-
-      - name: Avisar se as regras não puderam ser publicadas
-        if: steps.firestore_rules.outcome == 'failure'
-        run: echo "::warning::As regras do Firestore não foram publicadas. Verifique as permissões IAM da conta de serviço FIREBASE_SERVICE_ACCOUNT. O deploy do Hosting continuará."
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
