@@ -7,14 +7,14 @@
 // =====================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
-  getAuth, onAuthStateChanged,
-  createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut
+  getAuth, onAuthStateChanged, signOut,
+  GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, collection, getDocs, query,
+  getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, query,
   where, documentId
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js";
+import { firebaseConfig, MASTER_CODE } from "./firebase-config.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -704,12 +704,9 @@ async function kvList(prefix){
     activeModuleId: null,
     activeTab: 'conteudo',
     activeExerciseList: 0,
-    authMode: 'login', // 'login' | 'signup'
-    authEmail: '',
-    authPassword: '',
     authError: '',
-    signupName: '',
     signupRole: 'aluno',
+    masterCode: '',
     progress: null, // current student's progress object
     roster: null, // for professor view (students who logged in)
 
@@ -735,7 +732,8 @@ async function kvList(prefix){
 
     // ---- Auditoria / Correções pendentes (professor) ----
     auditLog: [],
-    correcoesPendentes: { incompletos: [], mensagensPendentes: [] }
+    correcoesPendentes: { incompletos: [], mensagensPendentes: [] },
+    usuarios: []
   };
 
   function emptyProgress(name){
@@ -988,7 +986,7 @@ async function kvList(prefix){
 
   // ---- Auditoria (professor) ----
   function roleLabelFor(role){
-    return role === 'professor' ? 'professor' : (role === 'admin' ? 'administrador' : 'aluno');
+    return role === 'professor' ? 'professor' : (role === 'admin' ? 'usuário mestre' : 'aluno');
   }
   async function logAudit(type, detail){
     const entry = {
@@ -1058,7 +1056,7 @@ async function kvList(prefix){
     if (state.view === 'loading') { root.innerHTML = `<div class="empty-state">Carregando…</div>`; return; }
     if (state.view === 'login') { renderLogin(); return; }
 
-    const roleLabel = state.user.role === 'professor' ? 'Professor' : (state.user.role === 'admin' ? 'Administrador' : 'Aluno');
+    const roleLabel = state.user.role === 'professor' ? 'Professor' : (state.user.role === 'admin' ? 'Usuário Mestre' : 'Aluno');
     let inner = `<div class="masthead"><div class="masthead-row">
       <div>
         <h1 class="serif">Contabilidade Avançada</h1>
@@ -1078,6 +1076,7 @@ async function kvList(prefix){
     else if (state.view === 'manual') inner += renderManual();
     else if (state.view === 'suporte') inner += renderSuporte();
     else if (state.view === 'notas') inner += renderMinhasNotas();
+    else if (state.view === 'usuarios') inner += renderUsuarios();
 
     inner += `</div>`;
     root.innerHTML = inner;
@@ -1089,7 +1088,7 @@ async function kvList(prefix){
     let items;
     if (role === 'aluno') items = [['dashboard','Início'],['notas','Minhas Notas'],['manual','Manual do Aluno'],['suporte','Suporte']];
     else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:auditoria','Auditoria'],['professor:correcoes','Correções Pendentes'],['manual','Manual do Professor'],['suporte','Suporte']];
-    else items = [['suporte','Suporte']];
+    else items = [['suporte','Suporte'],['usuarios','Usuários']];
 
     return `<div class="topnav">` + items.map(([key,label]) => {
       let active = false;
@@ -1105,19 +1104,16 @@ async function kvList(prefix){
   function friendlyAuthError(e){
     const code = e && e.code ? e.code : '';
     const map = {
-      'auth/email-already-in-use': 'Este e-mail já tem uma conta. Tente entrar em vez de criar uma nova.',
-      'auth/invalid-email': 'E-mail inválido.',
-      'auth/weak-password': 'A senha precisa ter pelo menos 6 caracteres.',
-      'auth/user-not-found': 'Não encontramos uma conta com esse e-mail.',
-      'auth/wrong-password': 'Senha incorreta.',
-      'auth/invalid-credential': 'E-mail ou senha incorretos.',
+      'auth/popup-closed-by-user': 'A janela de login foi fechada antes de concluir. Tente novamente.',
+      'auth/cancelled-popup-request': 'Só é possível uma janela de login por vez. Tente novamente.',
+      'auth/popup-blocked': 'O navegador bloqueou a janela de login. Permita pop-ups para este site e tente novamente.',
+      'auth/network-request-failed': 'Falha de conexão. Verifique sua internet e tente novamente.',
       'auth/too-many-requests': 'Muitas tentativas. Aguarde um pouco e tente novamente.'
     };
-    return map[code] || 'Não foi possível concluir a operação. Tente novamente.';
+    return map[code] || 'Não foi possível concluir o login. Tente novamente.';
   }
 
   function renderLogin(){
-    const isSignup = state.authMode === 'signup';
     root.innerHTML = `
       <div class="masthead"><div class="masthead-row">
         <div>
@@ -1126,70 +1122,46 @@ async function kvList(prefix){
         </div>
       </div></div>
       <div class="login-card">
-        <h2 class="serif">${isSignup ? 'Criar conta' : 'Entrar'}</h2>
-        <p class="hint">${isSignup ? 'Crie sua conta com e-mail e senha para acessar a disciplina.' : 'Entre com seu e-mail e senha.'}</p>
+        <h2 class="serif">🔒 Entrar no sistema</h2>
+        <p class="hint">Entre com sua conta Google para acessar a plataforma.</p>
         ${state.authError ? `<div class="note" style="border-color:var(--rule);color:var(--rule)">${esc(state.authError)}</div>` : ''}
-        ${isSignup ? `
-          <label for="signup-name">Nome completo</label>
-          <input type="text" id="signup-name" placeholder="Ex.: Maria Souza" value="${esc(state.signupName)}" />
-          <label>Perfil</label>
-          <div class="role-choice">
-            <button type="button" id="role-aluno" class="${state.signupRole==='aluno'?'active':''}">Aluno</button>
-            <button type="button" id="role-professor" class="${state.signupRole==='professor'?'active':''}">Professor</button>
-          </div>
-        ` : ''}
-        <label for="auth-email">E-mail</label>
-        <input type="text" id="auth-email" placeholder="voce@exemplo.com" value="${esc(state.authEmail)}" />
-        <label for="auth-password">Senha</label>
-        <input type="text" id="auth-password" placeholder="${isSignup ? 'mínimo 6 caracteres' : 'sua senha'}" value="${esc(state.authPassword)}" />
-        <button class="btn-primary" id="btn-auth-submit">${isSignup ? 'Criar conta' : 'Entrar'}</button>
-        <p class="hint" style="margin-top:16px;text-align:center">
-          ${isSignup ? 'Já tem conta?' : 'Ainda não tem conta?'}
-          <a href="#" id="toggle-auth-mode" style="color:var(--brass)">${isSignup ? 'Entrar' : 'Criar conta'}</a>
-        </p>
+
+        <label>Perfil de acesso</label>
+        <div class="role-choice">
+          <button type="button" id="role-aluno" class="${state.signupRole==='aluno'?'active':''}">🎓 Aluno(a)</button>
+          <button type="button" id="role-professor" class="${state.signupRole==='professor'?'active':''}">🧑‍🏫 Professor(a)</button>
+        </div>
+        <p class="hint" style="font-size:11.5px;margin-top:8px">Só é usado na primeira vez que esta conta entra no sistema. Depois disso, o perfil só pode ser alterado por um Usuário Mestre, no painel de Usuários.</p>
+
+        <label for="master-code">Código de Mestre (opcional)</label>
+        <div style="position:relative">
+          <input type="password" id="master-code" placeholder="Deixe em branco se não tiver" value="${esc(state.masterCode)}" style="padding-right:38px" />
+          <button type="button" id="toggle-master-code" title="Mostrar/ocultar" style="position:absolute;right:6px;top:6px;background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:15px;padding:4px">👁</button>
+        </div>
+        <p class="hint" style="font-size:11.5px">Só preencha se você recebeu um código de Usuário Mestre. Deixe em branco para entrar com o perfil escolhido acima.</p>
+
+        <button class="btn-primary" id="btn-google-signin" style="display:flex;align-items:center;justify-content:center;gap:10px">
+          <span style="font-weight:700">G</span> Continuar com o Google
+        </button>
       </div>
     `;
-    document.getElementById('auth-email').addEventListener('input', e => { state.authEmail = e.target.value; });
-    document.getElementById('auth-password').addEventListener('input', e => { state.authPassword = e.target.value; });
-    if (isSignup){
-      document.getElementById('signup-name').addEventListener('input', e => { state.signupName = e.target.value; });
-      document.getElementById('role-aluno').addEventListener('click', () => { state.signupRole='aluno'; render(); });
-      document.getElementById('role-professor').addEventListener('click', () => { state.signupRole='professor'; render(); });
-    }
-    document.getElementById('toggle-auth-mode').addEventListener('click', (e) => {
-      e.preventDefault();
-      state.authMode = isSignup ? 'login' : 'signup';
-      state.authError = '';
-      render();
+    document.getElementById('role-aluno').addEventListener('click', () => { state.signupRole='aluno'; render(); });
+    document.getElementById('role-professor').addEventListener('click', () => { state.signupRole='professor'; render(); });
+    const mc = document.getElementById('master-code');
+    mc.addEventListener('input', e => { state.masterCode = e.target.value; });
+    document.getElementById('toggle-master-code').addEventListener('click', () => {
+      mc.type = mc.type === 'password' ? 'text' : 'password';
     });
-    document.getElementById('btn-auth-submit').addEventListener('click', isSignup ? onSignup : onLoginSubmit);
+    document.getElementById('btn-google-signin').addEventListener('click', onGoogleSignIn);
   }
 
-  async function onSignup(){
-    const nome = (state.signupName || '').trim();
-    const email = (state.authEmail || '').trim();
-    const senha = state.authPassword || '';
+  async function onGoogleSignIn(){
     state.authError = '';
-    if (!nome){ state.authError = 'Informe seu nome completo.'; render(); return; }
-    if (!email || !senha){ state.authError = 'Informe e-mail e senha.'; render(); return; }
+    const provider = new GoogleAuthProvider();
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, senha);
-      await setDoc(doc(db, 'users', cred.user.uid), { name: nome, email, role: state.signupRole });
-      // onAuthStateChanged cuida do redirecionamento após o cadastro.
-    } catch(e){
-      state.authError = friendlyAuthError(e);
-      render();
-    }
-  }
-
-  async function onLoginSubmit(){
-    const email = (state.authEmail || '').trim();
-    const senha = state.authPassword || '';
-    state.authError = '';
-    if (!email || !senha){ state.authError = 'Informe e-mail e senha.'; render(); return; }
-    try {
-      await signInWithEmailAndPassword(auth, email, senha);
-      // onAuthStateChanged cuida do redirecionamento após o login.
+      await signInWithPopup(auth, provider);
+      // onAuthStateChanged cuida da criação do perfil (se for a primeira vez)
+      // e do redirecionamento a partir daqui.
     } catch(e){
       state.authError = friendlyAuthError(e);
       render();
@@ -1304,6 +1276,43 @@ async function kvList(prefix){
         <span class="back-link">Abrir →</span>
       </div>`;
     });
+    return html;
+  }
+
+  // ---- Usuários (painel do Usuário Mestre) ----
+  async function loadUsuarios(){
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      const out = [];
+      snap.forEach(d => out.push({ id: d.id, ...d.data() }));
+      out.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+      state.usuarios = out;
+    } catch(e){ state.usuarios = []; }
+  }
+
+  function renderUsuarios(){
+    let html = `<div class="section-title">Usuários</div>`;
+    html += `<div class="note">Como Usuário Mestre, você pode alterar o perfil de qualquer conta. A troca é salva automaticamente ao selecionar uma nova opção.</div>`;
+    const usuarios = state.usuarios || [];
+    if (!usuarios.length){
+      html += `<div class="empty-state">Nenhum usuário encontrado ainda.</div>`;
+      return html;
+    }
+    html += `<table class="roster"><tr><th>Nome</th><th>E-mail</th><th>Perfil</th></tr>`;
+    usuarios.forEach(u => {
+      html += `<tr>
+        <td>${esc(u.name || '—')}</td>
+        <td>${esc(u.email || '—')}</td>
+        <td>
+          <select data-user-role="${esc(u.id)}">
+            <option value="aluno" ${u.role==='aluno'?'selected':''}>Aluno(a)</option>
+            <option value="professor" ${u.role==='professor'?'selected':''}>Professor(a)</option>
+            <option value="admin" ${u.role==='admin'?'selected':''}>Usuário Mestre</option>
+          </select>
+        </td>
+      </tr>`;
+    });
+    html += `</table>`;
     return html;
   }
 
@@ -1635,7 +1644,7 @@ async function kvList(prefix){
       state.pdfStatus = ''; state.pdfStatusMsg = ''; state.pdfRawText = ''; state.pdfPreview = null;
       state.suporteTab = null; state.suporteThread = null; state.suporteInbox = null;
       state.suporteActiveThreadKey = null; state.suporteNewMessage = '';
-      state.authEmail = ''; state.authPassword = ''; state.authError = ''; state.authMode = 'login';
+      state.authError = ''; state.masterCode = ''; state.signupRole = 'aluno';
       await signOut(auth);
       // onAuthStateChanged cuida de limpar state.user e voltar para a tela de login.
     });
@@ -1716,6 +1725,7 @@ async function kvList(prefix){
         if (key === 'suporte'){ await openSuporte(); return; }
         if (key === 'manual'){ state.view = 'manual'; render(); return; }
         if (key === 'notas'){ state.view = 'notas'; render(); return; }
+        if (key === 'usuarios'){ state.view = 'usuarios'; await loadUsuarios(); render(); return; }
         if (key === 'dashboard'){ state.view = 'dashboard'; render(); return; }
         if (key.indexOf('professor:') === 0){
           const tab = key.split(':')[1];
@@ -1925,6 +1935,23 @@ async function kvList(prefix){
 
     const btnSendSuporte = document.getElementById('btn-send-suporte');
     if (btnSendSuporte) btnSendSuporte.addEventListener('click', async () => { await sendSuporteMessage(); });
+
+    // ---- Usuários (painel do Usuário Mestre) ----
+    document.querySelectorAll('[data-user-role]').forEach(sel => {
+      sel.addEventListener('change', async (e) => {
+        const uid = sel.getAttribute('data-user-role');
+        const newRole = e.target.value;
+        sel.disabled = true;
+        try {
+          await updateDoc(doc(db, 'users', uid), { role: newRole });
+          const u = (state.usuarios || []).find(x => x.id === uid);
+          if (u) u.role = newRole;
+        } catch(err){
+          alert('Não foi possível atualizar esse usuário: ' + (err && err.message ? err.message : 'erro desconhecido'));
+        }
+        sel.disabled = false;
+      });
+    });
   }
 
   // ---- Init ----
@@ -1933,16 +1960,31 @@ async function kvList(prefix){
     if (fbUser){
       let profile;
       try {
-        const snap = await getDoc(doc(db, 'users', fbUser.uid));
-        profile = snap.exists() ? snap.data() : null;
-      } catch(e){ profile = null; }
+        const userRef = doc(db, 'users', fbUser.uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()){
+          profile = snap.data();
+        } else {
+          // Primeira vez que esta conta entra: cria o perfil com o papel
+          // escolhido na tela de login (e o Código de Mestre, se informado).
+          let role = state.signupRole === 'professor' ? 'professor' : 'aluno';
+          if (state.masterCode && MASTER_CODE && state.masterCode === MASTER_CODE){
+            role = 'admin';
+          }
+          profile = { name: fbUser.displayName || fbUser.email || 'Usuário', email: fbUser.email || '', role };
+          await setDoc(userRef, profile);
+        }
+      } catch(e){
+        console.error('Erro ao carregar/criar perfil', e);
+        profile = null;
+      }
       if (!profile){
-        // Perfil não encontrado (conta corrompida ou criada fora do fluxo do app) — desconecta por segurança.
+        // Não foi possível carregar nem criar o perfil — desconecta por segurança.
         await signOut(auth);
         return;
       }
       state.user = { name: profile.name, role: profile.role, uid: fbUser.uid };
-      state.authEmail = ''; state.authPassword = ''; state.authError = '';
+      state.authError = ''; state.masterCode = '';
       if (profile.role === 'professor'){
         state.roster = await loadRoster();
         state.turmas = await loadTurmasForProfessor(profile.name);
