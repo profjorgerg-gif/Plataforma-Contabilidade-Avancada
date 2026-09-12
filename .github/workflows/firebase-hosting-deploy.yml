@@ -1,0 +1,23 @@
+name: Deploy para o Firebase Hosting
+
+# Este workflow é OPCIONAL. Enquanto você não configurar o segredo
+# FIREBASE_SERVICE_ACCOUNT (veja o README, seção "Deploy automático via
+# GitHub Actions"), ele simplesmente não vai rodar com sucesso — não tem
+# problema nenhum ignorá-lo e publicar manualmente com "firebase deploy".
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
+          channelId: live
+          projectId: ca-contabilidade-avancada
