@@ -707,6 +707,7 @@ async function kvList(prefix){
     authError: '',
     signupRole: 'aluno',
     masterCode: '',
+    loginMatricula: '', // confirmação obrigatória do aluno em todo login
     progress: null, // current student's progress object
     roster: null, // for professor view (students who logged in)
 
@@ -850,6 +851,54 @@ async function kvList(prefix){
       matches.sort((a,b)=>(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0));
       return matches[0]||null;
     } catch(e){ return null; }
+  }
+
+  function normalizeMatricula(value){
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  async function findStudentEnrollmentByMatricula(matricula){
+    const target = normalizeMatricula(matricula);
+    if (!target) return null;
+    try {
+      const list = await kvList('turma:');
+      if (!list || !list.keys) return null;
+      const matches = [];
+      for (const k of list.keys){
+        try {
+          const r = await kvGet(k);
+          if (!r || !r.value) continue;
+          const turma = JSON.parse(r.value);
+          const student = (turma.students || []).find(st => normalizeMatricula(st.matricula) === target);
+          if (student) matches.push({ turma, student });
+        } catch(e){}
+      }
+      matches.sort((a,b) => ((b.turma.updatedAt||b.turma.createdAt||0) - (a.turma.updatedAt||a.turma.createdAt||0)));
+      return matches[0] || null;
+    } catch(e){
+      return null;
+    }
+  }
+
+  async function loadProgressForEnrollment(oldName, academicName){
+    const newName = (academicName || '').trim();
+    const previousName = (oldName || '').trim();
+    if (!newName) return emptyProgress(previousName || 'Aluno');
+    try {
+      const current = await kvGet('student:' + newName);
+      if (current && current.value) return await loadProgress(newName);
+      if (previousName && previousName.toLocaleLowerCase('pt-BR') !== newName.toLocaleLowerCase('pt-BR')){
+        const old = await kvGet('student:' + previousName);
+        if (old && old.value){
+          const parsed = JSON.parse(old.value);
+          parsed.name = newName;
+          parsed.updatedAt = Date.now();
+          await kvSet('student:' + newName, JSON.stringify(parsed));
+          return await loadProgress(newName);
+        }
+      }
+    } catch(e){}
+    return await loadProgress(newName);
   }
 
   // ---- PDF import (pdf.js loaded on demand from cdnjs) ----
@@ -1289,6 +1338,10 @@ async function kvList(prefix){
             </div>
             <p class="auth-hint2">Só é usado na primeira vez que esta conta entra no sistema. Depois disso, o perfil só pode ser alterado por um Usuário Mestre, no painel de Usuários.</p>
 
+            ${state.signupRole==='aluno' ? `<label class="auth-label" for="student-matricula">Matrícula do aluno</label>
+            <input type="text" id="student-matricula" inputmode="numeric" autocomplete="off" placeholder="Informe sua matrícula" value="${esc(state.loginMatricula)}" />
+            <p class="auth-hint2">Obrigatória em todo acesso do Aluno. A matrícula precisa constar em uma turma criada pelo Professor, por importação PDF ou cadastro individual.</p>` : ''}
+
             <label class="auth-label" for="master-code">Código de Mestre (opcional)</label>
             <div class="auth-code-input">
               <input type="password" id="master-code" placeholder="Deixe em branco se não tiver" value="${esc(state.masterCode)}" />
@@ -1307,6 +1360,8 @@ async function kvList(prefix){
     `;
     document.getElementById('role-aluno').addEventListener('click', () => { state.signupRole='aluno'; render(); });
     document.getElementById('role-professor').addEventListener('click', () => { state.signupRole='professor'; render(); });
+    const sm = document.getElementById('student-matricula');
+    if (sm) sm.addEventListener('input', e => { state.loginMatricula = e.target.value; });
     const mc = document.getElementById('master-code');
     mc.addEventListener('input', e => { state.masterCode = e.target.value; });
     document.getElementById('toggle-master-code').addEventListener('click', () => {
@@ -1367,7 +1422,7 @@ async function kvList(prefix){
   // ---- Manual ----
   const MANUAL_ALUNO_HTML = `
     <h4>Como acessar</h4>
-    <p>Entre com sua conta Google e selecione o perfil "Aluno(a)" no primeiro acesso. Seu progresso é salvo automaticamente e fica visível para o professor acompanhar.</p>
+    <p>Entre com sua conta Google e informe sua <b>matrícula em todo acesso</b>. A entrada somente é liberada quando a matrícula estiver cadastrada em uma turma criada pelo Professor, por importação PDF ou inclusão individual. O nome acadêmico da turma passa a identificar seu progresso na plataforma.</p>
     <h4>Módulos</h4>
     <p>No menu "Início" você encontra os 5 módulos da disciplina. O avanço é sequencial: o próximo módulo é liberado somente após a correção e liberação do anterior. Os prazos definidos pelo professor aparecem nos cartões. Cada módulo tem quatro abas:</p>
     <ul>
@@ -1383,7 +1438,7 @@ async function kvList(prefix){
   `;
   const MANUAL_PROFESSOR_HTML = `
     <h4>Turmas</h4>
-    <p>No menu "Turmas" você cria turmas informando apenas um nome. Dentro de cada turma é possível montar a lista de alunos de duas formas:</p>
+    <p>No menu "Turmas" você cria turmas informando apenas um nome. <b>Somente alunos com matrícula cadastrada em uma dessas turmas conseguem entrar na plataforma.</b> A matrícula é confirmada obrigatoriamente em todo login do Aluno. Dentro de cada turma é possível montar a lista de alunos de duas formas:</p>
     <ul>
       <li>Enviando um arquivo PDF com nome e matrícula — o texto é extraído automaticamente e fica disponível para revisão e correção antes de confirmar;</li>
       <li>Adicionando um aluno por vez, informando nome e matrícula.</li>
@@ -1812,7 +1867,7 @@ async function kvList(prefix){
       state.pdfStatus = ''; state.pdfStatusMsg = ''; state.pdfRawText = ''; state.pdfPreview = null;
       state.suporteTab = null; state.suporteThread = null; state.suporteInbox = null;
       state.suporteActiveThreadKey = null; state.suporteNewMessage = '';
-      state.authError = ''; state.masterCode = ''; state.signupRole = 'aluno';
+      state.authError = ''; state.masterCode = ''; state.loginMatricula = ''; state.signupRole = 'aluno';
       await logAudit('logout', `${state.user ? state.user.name : 'Usuário'} saiu da plataforma.`);
       await signOut(auth);
       // onAuthStateChanged cuida de limpar state.user e voltar para a tela de login.
@@ -2169,8 +2224,9 @@ async function kvList(prefix){
   onAuthStateChanged(auth, async (fbUser) => {
     if (fbUser){
       let profile;
+      let userRef;
       try {
-        const userRef = doc(db, 'users', fbUser.uid);
+        userRef = doc(db, 'users', fbUser.uid);
         const snap = await getDoc(userRef);
         if (snap.exists()){
           profile = snap.data();
@@ -2187,27 +2243,71 @@ async function kvList(prefix){
         profile = null;
       }
       if (!profile){
-        // Não foi possível carregar nem criar o perfil — desconecta por segurança.
         await signOut(auth);
         return;
       }
-      state.user = { name: profile.name, email: profile.email || fbUser.email || '', role: profile.role, uid: fbUser.uid };
-      state.authError = ''; state.masterCode = '';
-      await logAudit('login', `${profile.name || fbUser.email || 'Usuário'} realizou login na plataforma.`);
-      if (profile.role === 'pending_professor'){ state.view='access-pending'; }
-      else if (profile.role === 'professor'){
-        state.roster = await loadRoster();
-        state.turmas = await loadTurmasForProfessor(profile.name);
-        state.professorTab = state.professorTab || 'acompanhamento';
-        state.view = 'professor';
-      } else if (profile.role === 'admin'){
-        state.suporteTab = 'alunos';
-        await loadSuporteForCurrentTab();
-        state.view = 'suporte';
-      } else {
-        state.progress = await loadProgress(profile.name);
-        state.studentTurma = await loadStudentTurma(profile.name);
+
+      if (profile.role === 'aluno'){
+        const informedMatricula = normalizeMatricula(state.loginMatricula);
+        if (!informedMatricula){
+          state.authError = 'Informe sua matrícula para entrar como Aluno(a). A confirmação é obrigatória em todo acesso.';
+          await signOut(auth);
+          return;
+        }
+        const enrollment = await findStudentEnrollmentByMatricula(informedMatricula);
+        if (!enrollment){
+          state.authError = 'Matrícula não localizada em nenhuma turma ativa. Solicite ao professor a conferência do cadastro da turma.';
+          state.loginMatricula = '';
+          await signOut(auth);
+          return;
+        }
+        const storedMatricula = normalizeMatricula(profile.matricula);
+        if (storedMatricula && storedMatricula !== informedMatricula){
+          state.authError = 'A matrícula informada não corresponde à matrícula já vinculada a esta conta Google. Solicite a correção ao Professor ou Usuário Mestre.';
+          state.loginMatricula = '';
+          await signOut(auth);
+          return;
+        }
+        const academicName = (enrollment.student.nome || profile.name || fbUser.displayName || fbUser.email || 'Aluno').trim();
+        const oldName = profile.academicName || profile.name || '';
+        try {
+          await updateDoc(userRef, {
+            name: academicName,
+            academicName,
+            matricula: informedMatricula,
+            turmaId: enrollment.turma.id,
+            turmaName: enrollment.turma.name,
+            enrollmentVerifiedAt: Date.now()
+          });
+        } catch(e){
+          console.error('Erro ao vincular matrícula ao perfil', e);
+          state.authError = 'Não foi possível confirmar sua matrícula neste acesso. Tente novamente ou comunique o professor.';
+          await signOut(auth);
+          return;
+        }
+        profile = { ...profile, name: academicName, academicName, matricula: informedMatricula, turmaId: enrollment.turma.id, turmaName: enrollment.turma.name };
+        state.user = { name: academicName, email: profile.email || fbUser.email || '', role: 'aluno', uid: fbUser.uid, matricula: informedMatricula };
+        state.progress = await loadProgressForEnrollment(oldName, academicName);
+        state.studentTurma = enrollment.turma;
+        state.authError = ''; state.masterCode = ''; state.loginMatricula = '';
+        await logAudit('login', `${academicName} realizou login na plataforma com matrícula confirmada.`);
         state.view = 'dashboard';
+      } else {
+        state.user = { name: profile.name, email: profile.email || fbUser.email || '', role: profile.role, uid: fbUser.uid };
+        state.authError = ''; state.masterCode = ''; state.loginMatricula = '';
+        await logAudit('login', `${profile.name || fbUser.email || 'Usuário'} realizou login na plataforma.`);
+        if (profile.role === 'pending_professor'){
+          state.view='access-pending';
+        } else if (profile.role === 'professor'){
+          state.roster = await loadRoster();
+          state.turmas = await loadTurmasForProfessor(profile.name);
+          state.professorTab = state.professorTab || 'acompanhamento';
+          state.view = 'professor';
+        } else if (profile.role === 'admin'){
+          state.suporteTab = 'alunos';
+          await loadSuporteForCurrentTab();
+          state.view = 'suporte';
+        }
       }
     } else {
       state.user = null;
