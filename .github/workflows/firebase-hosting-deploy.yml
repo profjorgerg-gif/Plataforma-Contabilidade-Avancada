@@ -6,6 +6,7 @@ on:
       - main
 
 # Publica a versão ativa da plataforma e exige sucesso das regras do Firestore.
+# Inclui o fluxo vigente de confirmação obrigatória da matrícula do Aluno.
 jobs:
   deploy:
     runs-on: ubuntu-latest
