@@ -143,3 +143,11 @@ Para que o mesmo workflow consiga publicar `firestore.rules`, o Service Account 
 - O módulo seguinte é liberado após a conclusão do conteúdo, das 5 listas e do Quiz do módulo anterior.
 - O painel do Professor apresenta Notas da Turma com detalhamento por atividade, Pendências operacionais e Relatório de Desempenho com resumo e detalhamento.
 - Exportação CSV e impressão/PDF utilizam o detalhamento das avaliações.
+
+
+## Fluxo de progressão pedagógica
+- Cada módulo exige obrigatoriamente 5 listas de exercícios, Quiz e Recuperação.
+- A Recuperação não é uma 7ª nota: substitui cada nota inferior entre os 5 exercícios e o Quiz.
+- A Nota do Módulo é calculada automaticamente após o ciclo avaliativo completo.
+- O próximo módulo permanece bloqueado até a liberação individual do professor.
+- A aba Pendências mostra os alunos que aguardam essa liberação, além de cadastros e mensagens pendentes.

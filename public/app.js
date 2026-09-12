@@ -1132,7 +1132,7 @@ async function kvList(prefix){
     const roster = professorRoster(allRoster);
     roster.forEach(st => MODULES.forEach(m => {
       const mp = st.modules && st.modules[m.id]; const c = correctionState(mp);
-      if (c.status === 'em_correcao') modulosPendentes.push({ student:st, module:m, mp, correction:c });
+      if (moduleReadyForSubmission(mp,m) && !c.released) modulosPendentes.push({ student:st, module:m, mp, correction:c });
     }));
     state.roster = roster;
     state.correcoesPendentes = { incompletos, mensagensPendentes, modulosPendentes };
@@ -1144,7 +1144,7 @@ async function kvList(prefix){
     const c=mp.correction; if(!Array.isArray(c.history))c.history=[]; if(c.firstSubmittedAt===undefined)c.firstSubmittedAt=null; if(c.late===undefined)c.late=false; if(c.latePenalty===undefined)c.latePenalty=0; return c;
   }
   function statusLabel(status){
-    return ({ liberado:'Em desenvolvimento', em_correcao:'Enviado para correção', ajustes:'Ajustes solicitados', corrigido:'Corrigido' })[status] || 'Em desenvolvimento';
+    return ({ liberado:'Em desenvolvimento', em_correcao:'Enviado para correção', ajustes:'Ajustes solicitados', aguardando_liberacao:'Aguardando liberação', corrigido:'Concluído / Liberado' })[status] || 'Em desenvolvimento';
   }
   function score10(score,total){
     if (score === null || score === undefined || !total) return null;
@@ -1198,7 +1198,7 @@ async function kvList(prefix){
   function toTs(v){ if(!v) return null; const ts=new Date(v).getTime(); return Number.isFinite(ts)?ts:null; }
   function moduleAccess(m){
     const idx=MODULES.findIndex(x=>x.id===m.id);
-    if(idx>0){ const prevModule=MODULES[idx-1], prev=state.progress&&state.progress.modules[prevModule.id]; if(!moduleReadyForSubmission(prev,prevModule)) return {locked:true,reason:'Conclua o conteúdo, as 5 listas e o Quiz do módulo anterior para avançar.'}; }
+    if(idx>0){ const prevModule=MODULES[idx-1], prev=state.progress&&state.progress.modules[prevModule.id], pc=correctionState(prev); if(!moduleReadyForSubmission(prev,prevModule)) return {locked:true,reason:'Conclua as 5 listas, o Quiz e a Recuperação do módulo anterior.'}; if(!pc.released) return {locked:true,reason:'Aguarde a liberação do professor para avançar ao próximo módulo.'}; }
     const s=scheduleForModule(m), deadline=toTs(s.deadline), original=toTs(s.originalDeadline)||deadline, now=Date.now();
     if(deadline && now>deadline && !s.allowLate) return {locked:true,reason:'Prazo encerrado. Aguarde a reabertura pelo professor.',deadline,late:true};
     return {locked:false,deadline,late:!!(original&&now>original),allowLate:!!s.allowLate};
@@ -1239,26 +1239,32 @@ async function kvList(prefix){
 
 
   function moduleReadyForSubmission(mp, m){
-    return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.length >= m.exerciseLists.length && mp.exerciseScores.slice(0,m.exerciseLists.length).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
+    return !!(mp && Array.isArray(mp.exerciseScores) && mp.exerciseScores.length >= m.exerciseLists.length && mp.exerciseScores.slice(0,m.exerciseLists.length).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined && mp.recoveryScore !== null && mp.recoveryScore !== undefined);
   }
   function moduleCompleted(mp){
-    return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.slice(0,5).length === 5 && mp.exerciseScores.slice(0,5).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
+    return !!(mp && Array.isArray(mp.exerciseScores) && mp.exerciseScores.slice(0,5).length === 5 && mp.exerciseScores.slice(0,5).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined && mp.recoveryScore !== null && mp.recoveryScore !== undefined);
   }
   function fmtGrade(v){ return (v === null || v === undefined || Number.isNaN(Number(v))) ? '—' : Number(v).toFixed(1).replace('.',','); }
-  function moduleStatusLabel(mp){ return moduleCompleted(mp) ? 'Concluído' : 'Em andamento'; }
+  function moduleStatusLabel(mp){
+    if (!moduleCompleted(mp)) return 'Em andamento';
+    return correctionState(mp).released ? 'Concluído / Liberado' : 'Aguardando liberação';
+  }
   function correctionBadge(mp){
-    const done = moduleCompleted(mp);
-    return `<span class="status-badge ${done?'ok':'neutral'}">${done?'Concluído':'Em andamento'}</span>`;
+    const done = moduleCompleted(mp), released = done && correctionState(mp).released;
+    const cls = released ? 'ok' : (done ? 'info' : 'neutral');
+    const label = released ? 'Concluído / Liberado' : (done ? 'Aguardando liberação' : 'Em andamento');
+    return `<span class="status-badge ${cls}">${label}</span>`;
   }
 
   function pctModule(mp, m){
     if (!mp) return 0;
     const listsTotal = m ? m.exerciseLists.length : (mp.exerciseListsDone ? mp.exerciseListsDone.length : 5);
-    const totalWeight = 1 /*content*/ + listsTotal + 1 /*quiz*/;
+    const totalWeight = 1 /*content*/ + listsTotal + 1 /*quiz*/ + 1 /*recuperação*/;
     let score = 0;
     if (mp.contentRead) score += 1;
     if (Array.isArray(mp.exerciseListsDone)) score += mp.exerciseListsDone.filter(Boolean).length;
     if (mp.quizScore !== null && mp.quizScore !== undefined) score += 1;
+    if (mp.recoveryScore !== null && mp.recoveryScore !== undefined) score += 1;
     return Math.round((score/totalWeight)*100);
   }
   function overallPct(progress){
@@ -1463,7 +1469,7 @@ async function kvList(prefix){
   // ---- Minhas Notas (aluno) ----
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
-    html += `<div class="note">Os <b>5 exercícios e o Quiz valem 10,0 pontos cada</b> e têm o mesmo peso. A <b>Recuperação não é uma 7ª nota</b>: sua nota é comparada individualmente com cada exercício e com o Quiz e substitui toda nota inferior. Quando houver substituição, aparece <b>nota original → nota considerada</b>. A <b>Nota do Módulo</b> é calculada automaticamente pelo sistema.</div>`;
+    html += `<div class="note">Os <b>5 exercícios e o Quiz valem 10,0 pontos cada</b> e têm o mesmo peso. A <b>Recuperação não é uma 7ª nota</b>: sua nota é comparada individualmente com cada exercício e com o Quiz e substitui toda nota inferior. Quando houver substituição, aparece <b>nota original → nota considerada</b>. A <b>Nota do Módulo</b> é calculada automaticamente após as 5 listas, o Quiz e a Recuperação obrigatória; o avanço ao próximo módulo depende da liberação do professor.</div>`;
     html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recuperação</th><th class="num">Nota do Módulo</th><th>Situação</th></tr>`;
     MODULES.forEach(m => {
       const mp = state.progress.modules[m.id]; const c=correctionState(mp);
@@ -1499,7 +1505,7 @@ async function kvList(prefix){
       <li><b>Recuperação</b> — avaliação paralela que não entra como 7ª nota. Sua nota é comparada com cada um dos 5 exercícios e com o Quiz; sempre que for superior, substitui aquela nota inferior para compor a média das 6 atividades.</li>
     </ul>
     <h4>Minhas Notas</h4>
-    <p>No menu superior, "Minhas Notas" mostra as notas dos 5 exercícios, Quiz, Recuperação, Nota do Módulo e situação. Os 5 exercícios e o Quiz possuem o mesmo peso. A Recuperação substitui individualmente todas as notas dessas 6 atividades que forem inferiores à nota obtida na Recuperação. Quando houver substituição, a tela apresenta a nota original → nota considerada, inclusive no Quiz.</p><h4>Conclusão do módulo</h4><p>Depois de concluir o conteúdo, as 5 listas e o Quiz, o sistema calcula automaticamente a Nota do Módulo e libera o módulo seguinte. Não há envio para correção manual. A Recuperação pode melhorar a nota ao substituir resultados inferiores.</p>
+    <p>No menu superior, "Minhas Notas" mostra as notas dos 5 exercícios, Quiz, Recuperação, Nota do Módulo e situação. Os 5 exercícios e o Quiz possuem o mesmo peso. A Recuperação substitui individualmente todas as notas dessas 6 atividades que forem inferiores à nota obtida na Recuperação. Quando houver substituição, a tela apresenta a nota original → nota considerada, inclusive no Quiz.</p><h4>Conclusão do módulo</h4><p>Depois de realizar obrigatoriamente as 5 listas, o Quiz e a Recuperação, o sistema calcula automaticamente a Nota do Módulo. O próximo módulo permanece bloqueado até a liberação individual do professor. A leitura do conteúdo compõe o progresso de estudo, mas não impede o fechamento da nota.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" você pode abrir chamados ao professor ou à administração. Cada chamado recebe protocolo, histórico, status administrativo, prazo de resposta e período de reabertura. Chamados e listas podem ser impressos ou salvos em PDF.</p>
   `;
@@ -1511,7 +1517,7 @@ async function kvList(prefix){
       <li>Adicionando um aluno por vez, informando nome e matrícula.</li>
     </ul>
     <h4>Notas da Turma</h4>
-    <p>O menu "Notas da Turma" mostra a Nota do Módulo e permite abrir o detalhamento de cada aluno, com Ex. 1 a Ex. 5, Quiz, Recuperação e identificação de toda substituição no formato nota original → nota considerada. As notas são calculadas automaticamente.</p><h4>Pendências</h4><p>A área "Pendências" reúne apenas situações que exigem atuação do professor, como cadastros incompletos e mensagens aguardando resposta. Exercícios, Quiz, Recuperação e notas não geram pendência de correção.</p><h4>Relatórios e Backup</h4><p>"Relatórios" apresenta o Relatório de Desempenho com resumo da turma, progresso e detalhamento por atividade, com CSV e impressão/PDF. "Backup" gera arquivo JSON das turmas e dados pedagógicos vinculados.</p>
+    <p>O menu "Notas da Turma" mostra a Nota do Módulo e permite abrir o detalhamento de cada aluno, com Ex. 1 a Ex. 5, Quiz, Recuperação e identificação de toda substituição no formato nota original → nota considerada. As notas são calculadas automaticamente.</p><h4>Pendências</h4><p>A área "Pendências" reúne alunos que concluíram o ciclo avaliativo e aguardam liberação individual do próximo módulo, além de cadastros incompletos e mensagens aguardando resposta. As notas permanecem automáticas; o professor controla apenas a progressão pedagógica.</p><h4>Relatórios e Backup</h4><p>"Relatórios" apresenta o Relatório de Desempenho com resumo da turma, progresso e detalhamento por atividade, com CSV e impressão/PDF. "Backup" gera arquivo JSON das turmas e dados pedagógicos vinculados.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, com chamados identificados por protocolo e status, onde você pode responder, encerrar ou reabrir cada atendimento; e <b>Administração</b>, seu canal direto com a administração da plataforma.</p>
   `;
@@ -1643,10 +1649,13 @@ async function kvList(prefix){
   function renderCorrecoesPendentes(){
     const data = state.correcoesPendentes || { incompletos: [], mensagensPendentes: [], modulosPendentes: [] };
     let html = `<div class="section-title">Pendências</div>`;
-    html += `<div class="note">Esta área reúne apenas situações que necessitam da atuação do professor. Exercícios, Quiz, Recuperação e Nota do Módulo são processados automaticamente pelo sistema.</div>`;
-    html += `<h4 style="margin:18px 0 8px">Cadastros a regularizar (${data.incompletos.length})</h4>`;
+    html += `<div class="note">Esta área reúne situações que exigem atuação do professor. As notas são calculadas automaticamente; a liberação do próximo módulo é uma decisão pedagógica individual do professor.</div>`;
+    html += `<h4 style="margin:18px 0 8px">Alunos aguardando liberação de módulo (${data.modulosPendentes.length})</h4>`;
+    if (!data.modulosPendentes.length) html += `<div class="empty-state">Nenhum aluno aguardando liberação no momento.</div>`;
+    else data.modulosPendentes.forEach((it,idx)=>{ const next=MODULES.find(m=>m.num===it.module.num+1); html += `<div class="review-card"><div class="review-head"><div><b>${esc(it.student.name)}</b><div class="thread-preview">M${it.module.num} — ${esc(it.module.title)}</div></div><span class="status-badge info">Aguardando liberação</span></div><div class="review-grid"><div><span>Nota do Módulo</span><b>${fmtGrade(effectiveModuleGrade(it.mp))}</b></div><div><span>Próxima etapa</span><b>${next?'M'+next.num:'Conclusão da disciplina'}</b></div></div><div class="review-actions"><button class="btn-brass" data-release-module="${idx}">${next?'Liberar M'+next.num:'Concluir disciplina'}</button></div></div>`; });
+    html += `<h4 style="margin:24px 0 8px">Cadastros a regularizar (${data.incompletos.length})</h4>`;
     if (!data.incompletos.length) html += `<div class="empty-state">Nenhum cadastro pendente no momento.</div>`;
-    else data.incompletos.forEach(it=>{ html += `<div class="thread-row" data-fix-turma="${esc(it.turmaId)}"><div><b>${esc(it.nome||'(nome não identificado)')}</b><div class="thread-preview">Turma: ${esc(it.turmaNome)} · ${!it.nome?'Nome ausente · ':''}${!it.matricula?'Matrícula ausente':''}</div></div><span class="back-link">Regularizar →</span></div>`; });
+    else data.incompletos.forEach(it=>{ html += `<div class="thread-row" data-fix-turma="${esc(it.turmaId)}"><div><b>${esc(it.nome||'(nome não identificado)')}</b><div class="thread-preview">Turma: ${esc(it.turmaNome||it.turmaName||'—')} · ${!it.nome?'Nome ausente · ':''}${!it.matricula?'Matrícula ausente':''}</div></div><span class="back-link">Regularizar →</span></div>`; });
     html += `<h4 style="margin:24px 0 8px">Mensagens aguardando resposta (${data.mensagensPendentes.length})</h4>`;
     if (!data.mensagensPendentes.length) html += `<div class="empty-state">Nenhuma mensagem pendente.</div>`;
     else data.mensagensPendentes.forEach(t=>{const last=t.messages[t.messages.length-1]; html += `<div class="thread-row" data-goto-thread="${esc(t.participantName)}"><div><b>${esc(t.participantName)}</b><div class="thread-preview">${esc(last.text.slice(0,70))}</div></div><span class="back-link">Responder →</span></div>`;});
@@ -1707,8 +1716,8 @@ async function kvList(prefix){
   }
 
   function docShell(title,body){ return `<div class="section-title">${esc(title)}</div><div class="toolbar"><button class="btn-outline" id="btn-print-doc">Imprimir / Salvar PDF</button></div><div class="panel doc-panel">${body}</div>`; }
-  function renderManualOperacional(){ return docShell('Manual Operacional',`<h4>1. Acesso e perfis</h4><p>O acesso é realizado exclusivamente com conta Google. Alunos entram como Aluno(a); Professores novos aguardam aprovação do Usuário Mestre.</p><h4>2. Turmas e alunos</h4><p>Crie a turma, cadastre alunos individualmente ou importe PDF, confira nome e matrícula e salve os prazos dos cinco módulos.</p><h4>3. Prazos e módulos</h4><p>O Módulo 1 inicia liberado. Os demais são liberados automaticamente após a conclusão do conteúdo, das 5 listas e do Quiz do módulo anterior. Após o prazo, o módulo bloqueia; quando o professor autoriza entrega em atraso, aplica-se desconto automático de 2,0 pontos na primeira conclusão fora do prazo original.</p><h4>4. Avaliação e notas</h4><p>Listas, Quiz e Recuperação são autocorrigidos. A Recuperação substitui todas as notas inferiores entre as 6 atividades avaliativas. A Nota do Módulo é calculada automaticamente, sem etapa de aprovação manual.</p><h4>5. Pendências, relatórios e suporte</h4><p>Pendências reúne apenas cadastros a regularizar e mensagens aguardando resposta. Relatórios apresentam resumo e detalhamento por atividade; Auditoria, Backup e Suporte permanecem disponíveis no painel do Professor.</p>`); }
-  function renderGuiaPedagogico(){ return docShell('Guia Pedagógico do Professor',`<h4>Organização didática</h4><p>A disciplina está estruturada em cinco módulos progressivos. O estudante avança automaticamente após concluir o conteúdo, as cinco listas e o Quiz do módulo anterior.</p><h4>Estrutura de cada módulo</h4><ul><li>Conteúdo teórico e exemplos;</li><li>5 listas autocorrigidas de 10 questões;</li><li>Quiz avaliativo autocorrigido;</li><li>Recuperação paralela autocorrigida;</li><li>Nota do Módulo calculada automaticamente.</li></ul><h4>Avaliação</h4><p>Os 5 exercícios e o Quiz têm o mesmo peso. A Recuperação não é uma 7ª nota: substitui individualmente todas as notas inferiores entre essas 6 atividades. Entrega após o prazo original, quando autorizada, recebe desconto automático de 2,0 pontos.</p><h4>Intervenção pedagógica</h4><p>Use Notas da Turma e Relatórios para acompanhar o desempenho detalhado; Pendências para cadastros e mensagens que exigem atuação; Auditoria para rastreabilidade e Suporte para dúvidas e ocorrências.</p><h4>Boas práticas</h4><p>Defina os prazos antes da abertura da turma, acompanhe o progresso e as notas por atividade, trate as pendências operacionais e gere backup periódico.</p>`); }
+  function renderManualOperacional(){ return docShell('Manual Operacional',`<h4>1. Acesso e perfis</h4><p>O acesso é realizado exclusivamente com conta Google. Alunos entram como Aluno(a); Professores novos aguardam aprovação do Usuário Mestre.</p><h4>2. Turmas e alunos</h4><p>Crie a turma, cadastre alunos individualmente ou importe PDF, confira nome e matrícula e salve os prazos dos cinco módulos.</p><h4>3. Prazos e módulos</h4><p>O Módulo 1 inicia liberado. Os demais são liberados somente após a realização obrigatória das 5 listas, do Quiz e da Recuperação do módulo anterior e a liberação individual do professor. Após o prazo, o módulo bloqueia; quando o professor autoriza entrega em atraso, aplica-se desconto automático de 2,0 pontos na primeira conclusão fora do prazo original.</p><h4>4. Avaliação e notas</h4><p>Listas, Quiz e Recuperação são autocorrigidos e a Recuperação é obrigatória. Ela substitui todas as notas inferiores entre as 6 atividades avaliativas. A Nota do Módulo é calculada automaticamente; o professor não corrige a nota, mas libera individualmente a progressão para o módulo seguinte.</p><h4>5. Pendências, relatórios e suporte</h4><p>Pendências reúne alunos aguardando liberação de módulo, cadastros a regularizar e mensagens aguardando resposta. Relatórios apresentam resumo e detalhamento por atividade; Auditoria, Backup e Suporte permanecem disponíveis no painel do Professor.</p>`); }
+  function renderGuiaPedagogico(){ return docShell('Guia Pedagógico do Professor',`<h4>Organização didática</h4><p>A disciplina está estruturada em cinco módulos progressivos. O estudante conclui o ciclo avaliativo após realizar as cinco listas, o Quiz e a Recuperação obrigatória; o avanço ocorre somente após a liberação individual do professor.</p><h4>Estrutura de cada módulo</h4><ul><li>Conteúdo teórico e exemplos;</li><li>5 listas autocorrigidas de 10 questões;</li><li>Quiz avaliativo autocorrigido;</li><li>Recuperação obrigatória e autocorrigida;</li><li>Nota do Módulo calculada automaticamente.</li></ul><h4>Avaliação</h4><p>Os 5 exercícios e o Quiz têm o mesmo peso. A Recuperação não é uma 7ª nota: substitui individualmente todas as notas inferiores entre essas 6 atividades. Entrega após o prazo original, quando autorizada, recebe desconto automático de 2,0 pontos.</p><h4>Intervenção pedagógica</h4><p>Use Notas da Turma e Relatórios para acompanhar o desempenho detalhado; Pendências para liberar individualmente o avanço dos alunos, regularizar cadastros e responder mensagens; Auditoria para rastreabilidade e Suporte para dúvidas e ocorrências.</p><h4>Boas práticas</h4><p>Defina os prazos antes da abertura da turma, acompanhe o progresso e as notas por atividade, trate as pendências operacionais e gere backup periódico.</p>`); }
 
   function renderTurmaList(){
     let html = `<div class="note">Crie turmas e monte a lista de alunos (nome e matrícula) enviando um PDF ou adicionando um a um.</div>`;
@@ -1908,7 +1917,7 @@ async function kvList(prefix){
       }
 
     } else if (state.activeTab === 'recuperacao'){
-      html += `<div class="recovery-intro">A recuperação é uma avaliação paralela e não é uma 7ª nota da média. Os 5 exercícios e o Quiz valem 10,0 pontos cada e têm o mesmo peso. A nota da Recuperação é comparada individualmente com as 6 atividades e substitui todas as notas inferiores, inclusive a do Quiz.</div>`;
+      html += `<div class="recovery-intro">A recuperação é obrigatória em todos os módulos e não é uma 7ª nota da média. Os 5 exercícios e o Quiz valem 10,0 pontos cada e têm o mesmo peso. A nota da Recuperação é comparada individualmente com as 6 atividades e substitui todas as notas inferiores, inclusive a do Quiz.</div>`;
       if (mp.recoveryScore !== null){
         html += `<div class="quiz-score">Recuperação já realizada. Resultado: <b>${mp.recoveryScore} de ${mp.recoveryTotal}</b> acertos.</div>`;
       } else {
@@ -1926,8 +1935,9 @@ async function kvList(prefix){
     const corr = correctionState(mp);
     html += `<div class="module-correction"><h4>Situação do módulo</h4><div style="margin-bottom:8px">${correctionBadge(mp)}</div>`;
     if (corr.feedback) html += `<div class="feedback-box"><b>Registro anterior do professor:</b> ${esc(corr.feedback)}</div>`;
-    if (moduleReadyForSubmission(mp,m)) html += `<div class="quiz-score">Módulo concluído. Nota do Módulo: <b>${fmtGrade(effectiveModuleGrade(mp))} / 10,0</b></div><p class="thread-preview">O próximo módulo é liberado automaticamente. A Recuperação, quando realizada, atualiza a nota se substituir resultados inferiores.</p>`;
-    else html += `<p class="thread-preview">Conclua o conteúdo, as 5 listas autocorrigidas e o Quiz. A nota e a liberação do próximo módulo serão processadas automaticamente.</p>`;
+    if (moduleReadyForSubmission(mp,m) && corr.released) html += `<div class="quiz-score">Módulo concluído e liberado. Nota do Módulo: <b>${fmtGrade(effectiveModuleGrade(mp))} / 10,0</b></div><p class="thread-preview">O próximo módulo está liberado, respeitando o prazo definido pelo professor.</p>`;
+    else if (moduleReadyForSubmission(mp,m)) html += `<div class="quiz-score">Ciclo avaliativo concluído. Nota do Módulo: <b>${fmtGrade(effectiveModuleGrade(mp))} / 10,0</b></div><p class="thread-preview">Aguarde a liberação individual do professor para avançar ao próximo módulo.</p>`;
+    else html += `<p class="thread-preview">Para concluir o ciclo avaliativo, realize obrigatoriamente as 5 listas, o Quiz e a Recuperação. A leitura do conteúdo compõe o progresso de estudo, mas não bloqueia o cálculo da nota.</p>`;
     html += `</div>`;
     html += `</div>`;
     return html;
@@ -2014,11 +2024,11 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
       else activeMp.recoveryScore = score;
       if (moduleReadyForSubmission(activeMp,m)){
         const c = correctionState(activeMp); const now = Date.now();
-        if (kind === 'quiz' && !c.firstSubmittedAt){
+        if (!c.firstSubmittedAt){
           const access = moduleAccess(m); c.firstSubmittedAt = now; c.late = !!access.late; c.latePenalty = access.late ? 2 : 0;
-          c.history.push({type:'conclusao_automatica',ts:now,late:c.late,latePenalty:c.latePenalty});
+          c.history.push({type:'ciclo_avaliativo_concluido',ts:now,late:c.late,latePenalty:c.latePenalty});
         }
-        c.status='corrigido'; c.reviewedAt=now; c.released=true; c.finalGrade=effectiveModuleGrade(activeMp); activeMp.correction=c;
+        c.status='aguardando_liberacao'; c.reviewedAt=null; c.released=false; c.finalGrade=effectiveModuleGrade(activeMp); activeMp.correction=c;
       }
       await saveProgress(state.progress);
       await logAudit(
@@ -2226,6 +2236,21 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
       row.addEventListener('click', async () => {
         const name = row.getAttribute('data-thread');
         await selectSuporteThread(name);
+      });
+    });
+
+    document.querySelectorAll('[data-release-module]').forEach(btn=>{
+      btn.addEventListener('click', async()=>{
+        const idx=parseInt(btn.getAttribute('data-release-module'),10), it=(state.correcoesPendentes.modulosPendentes||[])[idx];
+        if(!it) return;
+        const c=correctionState(it.mp); const now=Date.now();
+        c.status='corrigido'; c.released=true; c.reviewedAt=now; c.finalGrade=effectiveModuleGrade(it.mp);
+        c.history.push({type:'liberacao_pedagogica',ts:now,by:state.user.name,grade:c.finalGrade});
+        it.mp.correction=c;
+        await saveProgress(it.student);
+        await logAudit('modulo_liberado',`${state.user.name} liberou o avanço após o módulo "${it.module.title}" de ${it.student.name}. Nota do Módulo ${fmtGrade(c.finalGrade)}.`);
+        await loadCorrecoesPendentes();
+        render();
       });
     });
 
