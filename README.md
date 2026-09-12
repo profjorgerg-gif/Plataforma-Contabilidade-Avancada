@@ -163,3 +163,4 @@ Se preferir não configurar isso agora, não tem problema — o arquivo do workf
 - **PDF de matrícula:** a extração de texto do PDF (para importar listas de alunos) continua rodando no navegador, sem mudanças.
 
 Qualquer dúvida durante os passos acima, é só me chamar aqui que eu ajudo a resolver.
+
