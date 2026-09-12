@@ -1151,36 +1151,33 @@ async function kvList(prefix){
     return Math.round((Number(score)/Number(total))*100)/10;
   }
   function effectiveAssessmentScores10(mp){
-    const exercises = Array.from({length:5}, (_,i) => {
+    const originalExercises = Array.from({length:5}, (_,i) => {
       if (!mp || !Array.isArray(mp.exerciseScores)) return null;
       const v = mp.exerciseScores[i];
       return (v === null || v === undefined) ? null : Number(v);
     });
-    const quiz = mp ? score10(mp.quizScore, mp.quizTotal || 10) : null;
-    const values = [...exercises, quiz];
+    const originalQuiz = mp ? score10(mp.quizScore, mp.quizTotal || 10) : null;
+    const originalValues = [...originalExercises, originalQuiz];
     const recovery = mp ? score10(mp.recoveryScore, mp.recoveryTotal || 10) : null;
-    let replacedIndex = -1;
+    const replaced = originalValues.map(v => recovery !== null && v !== null && v !== undefined && recovery > Number(v));
+    const values = originalValues.map((v,i) => replaced[i] ? recovery : v);
 
-    if (recovery !== null){
-      let lowest = Infinity;
-      values.forEach((v,i) => {
-        if (v !== null && v !== undefined && Number(v) < lowest){
-          lowest = Number(v);
-          replacedIndex = i;
-        }
-      });
-      if (replacedIndex >= 0 && recovery > lowest) values[replacedIndex] = recovery;
-      else replacedIndex = -1;
-    }
-
-    return { values, exercises: values.slice(0,5), quiz: values[5], recovery, replacedIndex };
+    return {
+      values,
+      exercises: values.slice(0,5),
+      quiz: values[5],
+      recovery,
+      replaced,
+      originalValues,
+      originalExercises,
+      originalQuiz
+    };
   }
   function effectiveExerciseScores10(mp){
     return effectiveAssessmentScores10(mp).exercises;
   }
   function exerciseAverage10(mp){
-    if (!mp || !Array.isArray(mp.exerciseScores)) return null;
-    const vals = mp.exerciseScores.slice(0,5).filter(v => v !== null && v !== undefined).map(Number);
+    const vals = effectiveAssessmentScores10(mp).exercises.filter(v => v !== null && v !== undefined).map(Number);
     if (!vals.length) return null;
     return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
   }
@@ -1463,7 +1460,7 @@ async function kvList(prefix){
   // ---- Minhas Notas (aluno) ----
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
-    html += `<div class="note">Os <b>5 exercícios e o Quiz valem 10,0 pontos cada</b> e têm o mesmo peso, formando uma média aritmética simples de 6 atividades avaliativas. A <b>Recuperação não é uma 7ª nota</b>: se sua nota for maior que a menor nota entre os 5 exercícios e o Quiz, ela substitui somente essa menor nota para compor a média. A atividade substituída aparece com <b>*</b>. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
+    html += `<div class="note">Os <b>5 exercícios e o Quiz valem 10,0 pontos cada</b> e têm o mesmo peso, formando uma média aritmética simples de 6 atividades avaliativas. A <b>Recuperação não é uma 7ª nota</b>: sua nota é comparada individualmente com cada exercício e com o Quiz e, quando for superior, <b>substitui a nota inferior</b> para compor a média. Na tela aparece a <b>nota original → nota considerada</b> sempre que houver substituição. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
     html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recup. (substit.)</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
     MODULES.forEach(m => {
       const mp = state.progress.modules[m.id]; const c=correctionState(mp);
@@ -1472,14 +1469,15 @@ async function kvList(prefix){
       const exerciseCells = Array.from({length:5}, (_,i) => {
         const original = Array.isArray(mp.exerciseScores) ? mp.exerciseScores[i] : null;
         const effective = adjusted.exercises[i];
-        const replaced = adjusted.replacedIndex === i;
+        const replaced = !!(adjusted.replaced && adjusted.replaced[i]);
         if (effective === null || effective === undefined) return `<td class="num">—</td>`;
         const title = replaced ? ` title="Nota original ${fmtGrade(Number(original))} substituída pela recuperação ${fmtGrade(recTxt)}"` : '';
-        return `<td class="num"><span${title}>${fmtGrade(effective)}${replaced?'*':''}</span></td>`;
+        const shown = replaced ? `${fmtGrade(Number(original))} → <b>${fmtGrade(effective)}</b>` : fmtGrade(effective);
+        return `<td class="num"><span${title}>${shown}</span></td>`;
       }).join('');
-      const quizReplaced = adjusted.replacedIndex === 5;
+      const quizReplaced = !!(adjusted.replaced && adjusted.replaced[5]);
       const quizTitle = quizReplaced ? ` title="Nota original ${fmtGrade(quizTxt)} substituída pela recuperação ${fmtGrade(recTxt)}"` : '';
-      const quizCell = adjusted.quiz === null || adjusted.quiz === undefined ? '—' : `<span${quizTitle}>${fmtGrade(adjusted.quiz)}${quizReplaced?'*':''}</span>`;
+      const quizCell = adjusted.quiz === null || adjusted.quiz === undefined ? '—' : `<span${quizTitle}>${quizReplaced ? `${fmtGrade(quizTxt)} → <b>${fmtGrade(adjusted.quiz)}</b>` : fmtGrade(adjusted.quiz)}</span>`;
       html += `<tr><td>${esc(m.num+'. '+m.title)}</td>${exerciseCells}<td class="num">${quizCell}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(effectiveModuleGrade(mp))}</b></td><td>${correctionBadge(mp)}</td><td class="num"><b>${c.released?fmtGrade(c.finalGrade):'—'}</b></td></tr>`;
       if (c.feedback) html += `<tr><td colspan="11"><div class="feedback-box"><b>Feedback do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
     });
@@ -1497,10 +1495,10 @@ async function kvList(prefix){
       <li><b>Conteúdo</b> — teoria, exemplos numéricos e lançamentos contábeis;</li>
       <li><b>Exercícios</b> — 5 listas de 10 questões cada, realizadas obrigatoriamente em sequência. Após corrigir uma lista, a nota fica registrada, ela passa a constar como "Feita" e não pode ser refeita; somente então a lista seguinte é liberada;</li>
       <li><b>Quiz</b> — avaliação única que vale nota, corrigida na hora;</li>
-      <li><b>Recuperação</b> — avaliação paralela que não entra como 7ª nota. Se sua nota for maior que a menor nota entre os 5 exercícios e o Quiz, substitui somente essa menor nota para compor a média das 6 atividades.</li>
+      <li><b>Recuperação</b> — avaliação paralela que não entra como 7ª nota. Sua nota é comparada com cada um dos 5 exercícios e com o Quiz; sempre que for superior, substitui aquela nota inferior para compor a média das 6 atividades.</li>
     </ul>
     <h4>Minhas Notas</h4>
-    <p>No menu superior, "Minhas Notas" mostra as notas dos 5 exercícios, Quiz, Recuperação, média automática, situação da correção e Nota Final. Os 5 exercícios e o Quiz possuem o mesmo peso. A Recuperação substitui somente a menor nota entre essas 6 atividades quando for superior a ela; a substituição é identificada com * e pode ocorrer também no Quiz.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
+    <p>No menu superior, "Minhas Notas" mostra as notas dos 5 exercícios, Quiz, Recuperação, média automática, situação da correção e Nota Final. Os 5 exercícios e o Quiz possuem o mesmo peso. A Recuperação substitui individualmente todas as notas dessas 6 atividades que forem inferiores à nota obtida na Recuperação. Quando houver substituição, a tela apresenta a nota original → nota considerada, inclusive no Quiz.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" você pode abrir chamados ao professor ou à administração. Cada chamado recebe protocolo, histórico, status administrativo, prazo de resposta e período de reabertura. Chamados e listas podem ser impressos ou salvos em PDF.</p>
   `;

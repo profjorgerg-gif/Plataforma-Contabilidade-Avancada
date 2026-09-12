@@ -23,13 +23,13 @@ A plataforma possui 5 módulos. Cada módulo contém:
 - fluxo de envio do módulo para revisão do professor;
 - feedback e liberação da Nota Final pelo professor.
 
-A **nota automática do módulo** é calculada com 50% da média das 5 listas, já considerando eventuais substituições pela Recuperação, e 50% da nota do Quiz. A Recuperação não compõe a média diretamente: sua nota substitui, para efeito de cálculo, cada nota de lista que seja inferior à nota obtida na Recuperação. A Nota Final somente é considerada liberada quando o professor conclui a revisão do módulo.
+A **nota automática do módulo** corresponde à média aritmética simples das 6 atividades avaliativas de mesmo peso: 5 listas de exercícios e Quiz. A Recuperação não é uma 7ª nota: sua nota é comparada individualmente com cada uma das 6 atividades e substitui, para efeito de cálculo, toda nota que seja inferior à nota obtida na Recuperação, inclusive a do Quiz. As notas originais permanecem preservadas e são exibidas ao lado das notas consideradas quando houver substituição. A Nota Final somente é considerada liberada quando o professor conclui a revisão do módulo.
 
 ## Fluxo de correção por módulo
 
 1. O aluno estuda o conteúdo do módulo.
 2. Realiza as 5 listas, que são corrigidas automaticamente.
-3. Realiza o quiz e, quando houver Recuperação, a nota desta substitui individualmente as notas das listas que forem inferiores a ela para efeito do cálculo automático.
+3. Realiza o Quiz e, quando houver Recuperação, a nota desta substitui individualmente todas as notas inferiores entre os 5 exercícios e o próprio Quiz para efeito do cálculo automático.
 4. Quando os requisitos do módulo estiverem concluídos, o aluno usa **Enviar módulo para correção**.
 5. O módulo passa para o status **Enviado para correção**.
 6. O professor acessa **Correções Pendentes**, visualiza a nota automática e pode:
@@ -46,8 +46,8 @@ A **nota automática do módulo** é calculada com 50% da média das 5 listas, j
 O menu **Minhas Notas** apresenta, por módulo:
 
 - nota individual de cada uma das 5 listas/exercícios;
-- indicação com `*` quando a nota exibida foi substituída pela nota da Recuperação;
-- nota do Quiz;
+- exibição da nota original e da nota considerada (`original → considerada`) quando houver substituição pela Recuperação;
+- nota do Quiz, também sujeita à substituição pela Recuperação quando for inferior;
 - nota da Recuperação;
 - nota automática;
 - status da correção;
