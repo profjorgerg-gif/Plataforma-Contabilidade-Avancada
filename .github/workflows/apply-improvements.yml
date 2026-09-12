@@ -24,8 +24,14 @@ jobs:
           set -euo pipefail
           : > /tmp/improvements.patch
           for f in tools/improvements.patch.part01 tools/improvements.patch.part02 tools/improvements.patch.part03 tools/improvements.patch.part04 tools/improvements.patch.part05; do
-            cat "$f" >> /tmp/improvements.patch
-            printf '\n' >> /tmp/improvements.patch
+            if [ "$f" = "tools/improvements.patch.part03" ]; then
+              sed '${/^ $/d;}' "$f" >> /tmp/improvements.patch
+            else
+              cat "$f" >> /tmp/improvements.patch
+            fi
+            if [ -n "$(tail -c 1 "$f")" ]; then
+              printf '\n' >> /tmp/improvements.patch
+            fi
           done
           git apply --check /tmp/improvements.patch
           git apply /tmp/improvements.patch
