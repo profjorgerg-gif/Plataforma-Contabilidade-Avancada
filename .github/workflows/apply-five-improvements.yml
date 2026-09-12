@@ -1,0 +1,49 @@
+name: Aplicar cinco melhorias prioritarias
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-five-improvements.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Aplicar melhorias
+        run: python3 tools/apply_five_improvements.py
+
+      - name: Validar JavaScript
+        run: node --check public/app.js
+
+      - name: Validar alterações
+        shell: bash
+        run: |
+          grep -q "Prazos e liberação dos módulos" public/app.js
+          grep -q "Manual Operacional" public/app.js
+          grep -q "SUPPORT_STATUSES" public/app.js
+          grep -q "moduleAccess" public/app.js
+
+      - name: Remover instalador temporário
+        shell: bash
+        run: |
+          rm -f tools/apply_five_improvements.py
+          rm -f .github/workflows/apply-five-improvements.yml
+          rmdir tools 2>/dev/null || true
+
+      - name: Commit e publicação
+        shell: bash
+        run: |
+          git config user.name "Projetos Pedagogicos"
+          git config user.email "profjorge.rg@gmail.com"
+          git add -A
+          git commit -m "Implanta cinco melhorias prioritarias da plataforma"
+          git push origin HEAD:main
