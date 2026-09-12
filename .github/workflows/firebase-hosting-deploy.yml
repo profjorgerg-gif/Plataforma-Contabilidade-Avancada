@@ -5,6 +5,7 @@ on:
     branches:
       - main
 
+# Publica a versão ativa da plataforma e exige sucesso das regras do Firestore.
 jobs:
   deploy:
     runs-on: ubuntu-latest
