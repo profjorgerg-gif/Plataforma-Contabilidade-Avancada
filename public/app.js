@@ -1115,34 +1115,54 @@ async function kvList(prefix){
 
   function renderLogin(){
     root.innerHTML = `
-      <div class="masthead"><div class="masthead-row">
-        <div>
-          <h1 class="serif">Contabilidade Avançada</h1>
-          <div class="kicker">Plataforma de acompanhamento da disciplina</div>
+      <div class="auth-shell">
+        <div class="auth-left">
+          <div class="auth-brand">
+            <div class="auth-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 10.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-5.5"/></svg></div>
+            <div>
+              <div class="auth-kicker">CEDUP HERMANN HERING</div>
+              <div class="auth-sub">Curso Técnico em Administração e Contabilidade</div>
+            </div>
+          </div>
+          <h1>Contabilidade<br/>Avançada</h1>
+          <p class="auth-desc">Provisões da folha, apuração do resultado, participações, IRPF e ganho de capital — módulo a módulo, com prática guiada e correção na hora.</p>
+          <div class="auth-bars">
+            <div style="height:20%"></div><div style="height:28%"></div><div style="height:34%"></div>
+            <div style="height:42%"></div><div style="height:50%"></div><div style="height:58%"></div>
+            <div style="height:66%"></div><div style="height:76%"></div><div style="height:86%"></div><div style="height:100%"></div>
+          </div>
+          <div class="auth-feat"><div class="auth-feat-ic"></div>5 módulos guiados, do provisionamento à declaração do IRPF</div>
+          <div class="auth-feat"><div class="auth-feat-ic"></div>Correção automática do quiz e recuperação paralela</div>
+          <div class="auth-feat"><div class="auth-feat-ic"></div>Acompanhamento do professor atualizado em tempo real</div>
         </div>
-      </div></div>
-      <div class="login-card">
-        <h2 class="serif">🔒 Entrar no sistema</h2>
-        <p class="hint">Entre com sua conta Google para acessar a plataforma.</p>
-        ${state.authError ? `<div class="note" style="border-color:var(--rule);color:var(--rule)">${esc(state.authError)}</div>` : ''}
 
-        <label>Perfil de acesso</label>
-        <div class="role-choice">
-          <button type="button" id="role-aluno" class="${state.signupRole==='aluno'?'active':''}">🎓 Aluno(a)</button>
-          <button type="button" id="role-professor" class="${state.signupRole==='professor'?'active':''}">🧑‍🏫 Professor(a)</button>
+        <div class="auth-right">
+          <div class="auth-card">
+            <div class="auth-lockrow">🔒 Entrar no sistema</div>
+            <p class="auth-hint">Entre com sua conta Google para acessar a plataforma.</p>
+            ${state.authError ? `<div class="auth-error">${esc(state.authError)}</div>` : ''}
+
+            <label class="auth-label">Perfil de acesso</label>
+            <div class="auth-role-choice">
+              <button type="button" id="role-aluno" class="auth-role ${state.signupRole==='aluno'?'on':''}">Aluno(a)</button>
+              <button type="button" id="role-professor" class="auth-role ${state.signupRole==='professor'?'on':''}">Professor(a)</button>
+            </div>
+            <p class="auth-hint2">Só é usado na primeira vez que esta conta entra no sistema. Depois disso, o perfil só pode ser alterado por um Usuário Mestre, no painel de Usuários.</p>
+
+            <label class="auth-label" for="master-code">Código de Mestre (opcional)</label>
+            <div class="auth-code-input">
+              <input type="password" id="master-code" placeholder="Deixe em branco se não tiver" value="${esc(state.masterCode)}" />
+              <button type="button" id="toggle-master-code" title="Mostrar/ocultar">👁</button>
+            </div>
+            <p class="auth-hint2">Só preencha se você recebeu um código de Usuário Mestre. Deixe em branco para entrar com o perfil escolhido acima.</p>
+
+            <button class="auth-gbtn" id="btn-google-signin">
+              <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z"/><path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.962L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+              Continuar com o Google
+            </button>
+            <p class="auth-foot">Autenticado via Firebase Authentication — somente conta Google.</p>
+          </div>
         </div>
-        <p class="hint" style="font-size:11.5px;margin-top:8px">Só é usado na primeira vez que esta conta entra no sistema. Depois disso, o perfil só pode ser alterado por um Usuário Mestre, no painel de Usuários.</p>
-
-        <label for="master-code">Código de Mestre (opcional)</label>
-        <div style="position:relative">
-          <input type="password" id="master-code" placeholder="Deixe em branco se não tiver" value="${esc(state.masterCode)}" style="padding-right:38px" />
-          <button type="button" id="toggle-master-code" title="Mostrar/ocultar" style="position:absolute;right:6px;top:6px;background:none;border:none;cursor:pointer;color:var(--ink-soft);font-size:15px;padding:4px">👁</button>
-        </div>
-        <p class="hint" style="font-size:11.5px">Só preencha se você recebeu um código de Usuário Mestre. Deixe em branco para entrar com o perfil escolhido acima.</p>
-
-        <button class="btn-primary" id="btn-google-signin" style="display:flex;align-items:center;justify-content:center;gap:10px">
-          <span style="font-weight:700">G</span> Continuar com o Google
-        </button>
       </div>
     `;
     document.getElementById('role-aluno').addEventListener('click', () => { state.signupRole='aluno'; render(); });
