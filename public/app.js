@@ -1150,9 +1150,17 @@ async function kvList(prefix){
     if (score === null || score === undefined || !total) return null;
     return Math.round((Number(score)/Number(total))*100)/10;
   }
+  function effectiveExerciseScores10(mp){
+    if (!mp || !Array.isArray(mp.exerciseScores)) return [];
+    const recovery = score10(mp.recoveryScore, mp.recoveryTotal || 10);
+    return mp.exerciseScores.map(v => {
+      if (v === null || v === undefined) return null;
+      const original = Number(v);
+      return recovery !== null && original < recovery ? recovery : original;
+    });
+  }
   function exerciseAverage10(mp){
-    if (!mp || !Array.isArray(mp.exerciseScores)) return null;
-    const vals = mp.exerciseScores.filter(v => v !== null && v !== undefined).map(v => Number(v));
+    const vals = effectiveExerciseScores10(mp).filter(v => v !== null && v !== undefined);
     if (!vals.length) return null;
     return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
   }
@@ -1440,13 +1448,22 @@ async function kvList(prefix){
   // ---- Minhas Notas (aluno) ----
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
-    html += `<div class="note">As listas e o quiz são autocorrigidos. A <b>nota automática do módulo</b> considera 50% da média das 5 listas e 50% do melhor resultado entre Quiz e Recuperação. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
-    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Listas</th><th class="num">Quiz</th><th class="num">Recup.</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
+    html += `<div class="note">As 5 listas aparecem individualmente. Quando a <b>nota da Recuperação</b> for superior à nota de uma lista, ela <b>substitui a nota inferior</b> para efeito da média e da nota automática. As notas substituídas aparecem com <b>*</b>. A nota automática do módulo considera 50% da média das 5 listas já ajustadas e 50% do melhor resultado entre Quiz e Recuperação. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
+    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recup.</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
     MODULES.forEach(m => {
       const mp = state.progress.modules[m.id]; const c=correctionState(mp);
       const quizTxt = score10(mp.quizScore,mp.quizTotal); const recTxt=score10(mp.recoveryScore,mp.recoveryTotal);
-      html += `<tr><td>${esc(m.num+'. '+m.title)}</td><td class="num">${fmtGrade(exerciseAverage10(mp))}</td><td class="num">${fmtGrade(quizTxt)}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(effectiveModuleGrade(mp))}</b></td><td>${correctionBadge(mp)}</td><td class="num"><b>${c.released?fmtGrade(c.finalGrade):'—'}</b></td></tr>`;
-      if (c.feedback) html += `<tr><td colspan="7"><div class="feedback-box"><b>Feedback do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
+      const effectiveExercises = effectiveExerciseScores10(mp);
+      const exerciseCells = Array.from({length:5}, (_,i) => {
+        const original = Array.isArray(mp.exerciseScores) ? mp.exerciseScores[i] : null;
+        const effective = effectiveExercises[i];
+        const replaced = recTxt !== null && original !== null && original !== undefined && Number(original) < recTxt;
+        if (effective === null || effective === undefined) return `<td class="num">—</td>`;
+        const title = replaced ? ` title="Nota original ${fmtGrade(Number(original))} substituída pela recuperação ${fmtGrade(recTxt)}"` : '';
+        return `<td class="num"><span${title}>${fmtGrade(effective)}${replaced?'*':''}</span></td>`;
+      }).join('');
+      html += `<tr><td>${esc(m.num+'. '+m.title)}</td>${exerciseCells}<td class="num">${fmtGrade(quizTxt)}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(effectiveModuleGrade(mp))}</b></td><td>${correctionBadge(mp)}</td><td class="num"><b>${c.released?fmtGrade(c.finalGrade):'—'}</b></td></tr>`;
+      if (c.feedback) html += `<tr><td colspan="11"><div class="feedback-box"><b>Feedback do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
     });
     html += `</table></div>`;
     return html;
@@ -1465,7 +1482,7 @@ async function kvList(prefix){
       <li><b>Recuperação</b> — avaliação paralela, com questões diferentes do quiz, que pode ser feita a qualquer momento como prática extra ou para tentar melhorar seu desempenho no módulo.</li>
     </ul>
     <h4>Minhas Notas</h4>
-    <p>No menu superior, "Minhas Notas" mostra média das listas, quiz, recuperação, nota automática, situação da correção e Nota Final quando liberada pelo professor.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
+    <p>No menu superior, "Minhas Notas" mostra a nota de cada uma das 5 listas, Quiz, Recuperação, nota automática, situação da correção e Nota Final quando liberada pelo professor. Quando a nota da Recuperação for superior à nota de uma lista, a Recuperação substitui aquela nota inferior para o cálculo da média e da nota automática; a substituição é identificada com *.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" você pode abrir chamados ao professor ou à administração. Cada chamado recebe protocolo, histórico, status administrativo, prazo de resposta e período de reabertura. Chamados e listas podem ser impressos ou salvos em PDF.</p>
   `;
@@ -1477,7 +1494,7 @@ async function kvList(prefix){
       <li>Adicionando um aluno por vez, informando nome e matrícula.</li>
     </ul>
     <h4>Notas da Turma</h4>
-    <p>O menu "Notas da Turma" mostra, por aluno e módulo, a nota automática, a Nota Final liberada e a situação da correção, com exportação em CSV e impressão/PDF.</p><h4>Correções Pendentes</h4><p>Defina os prazos dos módulos dentro de cada turma. O vencimento bloqueia automaticamente o módulo; a entrega tardia autorizada recebe desconto de 2,0 pontos. Os módulos enviados pelos alunos aparecem em "Correções Pendentes". A nota automática já vem calculada; o professor pode manter ou ajustar a Nota Final, registrar feedback, aprovar/liberar ou devolver o módulo para ajustes.</p><h4>Relatórios e Backup</h4><p>Os menus "Relatórios" e "Backup" permitem exportar acompanhamento em CSV, imprimir/salvar em PDF e gerar backup JSON das turmas e dados pedagógicos vinculados.</p>
+    <p>O menu "Notas da Turma" mostra, por aluno e módulo, a nota automática, a Nota Final liberada e a situação da correção, com exportação em CSV e impressão/PDF. Na composição da nota automática, a Recuperação substitui individualmente toda nota de lista que seja inferior à nota obtida na Recuperação.</p><h4>Correções Pendentes</h4><p>Defina os prazos dos módulos dentro de cada turma. O vencimento bloqueia automaticamente o módulo; a entrega tardia autorizada recebe desconto de 2,0 pontos. Os módulos enviados pelos alunos aparecem em "Correções Pendentes". A nota automática já vem calculada; o professor pode manter ou ajustar a Nota Final, registrar feedback, aprovar/liberar ou devolver o módulo para ajustes.</p><h4>Relatórios e Backup</h4><p>Os menus "Relatórios" e "Backup" permitem exportar acompanhamento em CSV, imprimir/salvar em PDF e gerar backup JSON das turmas e dados pedagógicos vinculados.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, com chamados identificados por protocolo e status, onde você pode responder, encerrar ou reabrir cada atendimento; e <b>Administração</b>, seu canal direto com a administração da plataforma.</p>
   `;
