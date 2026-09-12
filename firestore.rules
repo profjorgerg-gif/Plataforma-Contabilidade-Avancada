@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isProfessorOrAdmin() {
+      return isSignedIn() && myRole() in ['professor', 'admin'];
+    }
+
+    // Perfil de cada usuário (nome, e-mail, perfil: aluno | professor | admin)
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      // Só o próprio usuário cria/edita seu perfil (o cadastro público nunca
+      // grava role = "admin" — promova um usuário a admin manualmente pelo
+      // Console do Firestore, trocando o campo "role" do documento dele).
+      allow create: if isSignedIn() && request.auth.uid == uid
+                    && request.resource.data.role in ['aluno', 'professor'];
+      allow update: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // Armazenamento chave-valor genérico usado pelo app (progresso dos
+    // alunos, turmas, mensagens de suporte, log de auditoria). O controle
+    // fino de acesso é feito pelo prefixo da chave (o ID do documento).
+    match /kv_store/{key} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+      // Nota: para uma turma real, vale refinar isso por prefixo (ex:
+      // só o próprio aluno grava em "student:<nome-dele>"), mas como a
+      // identificação hoje é pelo nome digitado no cadastro (não pelo
+      // uid), a validação fina fica mais robusta numa próxima etapa,
+      // migrando as chaves de "nome" para "uid". Por ora, qualquer
+      // usuário autenticado (aluno, professor ou admin) pode ler e
+      // escrever — adequado para uso interno de uma turma, não para
+      // dados sensíveis ou uso em produção aberta ao público.
+    }
+  }
+}
