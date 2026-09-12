@@ -1563,7 +1563,7 @@ async function kvList(prefix){
     </div></div></div>`;
     const chk=document.getElementById('btn-check-access'); if(chk) chk.addEventListener('click',async()=>{chk.disabled=true; const snap=await getDoc(doc(db,'users',state.user.uid)); const profile=snap.exists()?snap.data():null; if(profile&&profile.role==='professor'){state.user.role='professor'; state.roster=await loadRoster(); state.turmas=await loadTurmasForProfessor(profile.name); state.professorTab='acompanhamento'; state.view='professor'; render();} else {chk.disabled=false; alert('A solicitação ainda está aguardando aprovação.');}});
     const b=document.getElementById('btn-pending-logout');
-    if (b) b.addEventListener('click', async()=>{ await signOut(auth); });
+    if (b) b.addEventListener('click', ()=>requestLogoutWithBackup());
   }
 
   function friendlyAuthError(e){
@@ -1929,6 +1929,56 @@ async function kvList(prefix){
     roster.forEach(st=>MODULES.forEach(m=>{const mp=st.modules[m.id],a=effectiveAssessmentScores10(mp),rec=score10(mp.recoveryScore,mp.recoveryTotal),qOrig=score10(mp.quizScore,mp.quizTotal),grade=moduleReadyForSubmission(mp,m)?effectiveModuleGrade(mp):null; const fmt=(orig,eff,rep)=>eff===null||eff===undefined?'—':(rep?`${fmtGrade(orig)} → <b>${fmtGrade(eff)}</b>`:fmtGrade(eff)); html+=`<tr><td>${esc(st.name)}</td><td><b>M${m.num}</b></td>${Array.from({length:5},(_,i)=>`<td class="num">${fmt(Array.isArray(mp.exerciseScores)?mp.exerciseScores[i]:null,a.exercises[i],!!(a.replaced&&a.replaced[i]))}</td>`).join('')}<td class="num">${fmt(qOrig,a.quiz,!!(a.replaced&&a.replaced[5]))}</td><td class="num">${fmtGrade(rec)}</td><td class="num"><b>${fmtGrade(grade)}</b></td><td>${moduleStatusLabel(mp)}</td></tr>`;}));
     html+=`</table></div>`; return html;
   }
+  // ---- Backup opcional antes de sair ----
+  function logoutBackupTimestamp(){
+    const d=new Date(), p=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+  }
+  async function buildCurrentUserBackup(){
+    const u=state.user||{}, role=u.role||'usuario';
+    const base={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),usuario:{nome:u.name||'',email:u.email||'',perfil:role,matricula:u.matricula||''}};
+    if(role==='professor'){
+      try{ await loadPlanningAll(); }catch(e){}
+      const names=new Set(); (state.turmas||[]).forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim())));
+      const alunos=(state.roster||[]).filter(r=>names.has((r.name||'').trim()));
+      return {...base,turmas:state.turmas||[],alunos,planejamentos:state.planningRecords||{semester:[],lesson:[]},cadastrosPlanejamento:state.planningCatalog||null};
+    }
+    if(role==='aluno'){
+      return {...base,turma:state.studentTurma||null,progresso:state.progress||null};
+    }
+    return base;
+  }
+  async function downloadCurrentUserBackup(){
+    const payload=await buildCurrentUserBackup();
+    const role=((state.user&&state.user.role)||'usuario').replace(/[^a-z0-9_-]/gi,'_').toLowerCase();
+    const name=`backup_contabilidade_avancada_${role}_${logoutBackupTimestamp()}.json`;
+    downloadText(name,JSON.stringify(payload,null,2),'application/json;charset=utf-8');
+    try{ await logAudit('backup_saida',`${state.user ? state.user.name : 'Usuário'} gerou backup antes de sair.`); }catch(e){}
+  }
+  function closeLogoutBackupModal(){ const el=document.getElementById('logout-backup-overlay'); if(el)el.remove(); }
+  async function finishLogout(){
+    try{ await logAudit('logout',`${state.user ? state.user.name : 'Usuário'} saiu da plataforma.`); }catch(e){}
+    await signOut(auth);
+  }
+  function requestLogoutWithBackup(){
+    if(document.getElementById('logout-backup-overlay')) return;
+    const overlay=document.createElement('div'); overlay.id='logout-backup-overlay'; overlay.className='logout-backup-overlay';
+    overlay.innerHTML=`<div class="logout-backup-modal" role="dialog" aria-modal="true" aria-labelledby="logout-backup-title">
+      <div class="logout-backup-icon">💾</div>
+      <h2 id="logout-backup-title" class="serif">Fazer um backup antes de sair?</h2>
+      <p>Baixe um arquivo com os seus dados desta plataforma, com a data e a hora no nome do arquivo.<br><b>Recomendado, mas opcional.</b></p>
+      <button class="logout-backup-primary" id="btn-backup-and-logout">Sim, baixar backup e sair</button>
+      <button class="logout-backup-secondary" id="btn-logout-without-backup">Sair sem backup</button>
+      <button class="logout-backup-cancel" id="btn-cancel-logout" aria-label="Cancelar saída">Cancelar</button>
+    </div>`;
+    document.body.appendChild(overlay);
+    const yes=document.getElementById('btn-backup-and-logout'), no=document.getElementById('btn-logout-without-backup'), cancel=document.getElementById('btn-cancel-logout');
+    if(cancel) cancel.addEventListener('click',closeLogoutBackupModal);
+    overlay.addEventListener('click',e=>{ if(e.target===overlay) closeLogoutBackupModal(); });
+    if(no) no.addEventListener('click',async()=>{ yes.disabled=true; no.disabled=true; closeLogoutBackupModal(); await finishLogout(); });
+    if(yes) yes.addEventListener('click',async()=>{ yes.disabled=true; no.disabled=true; yes.textContent='Gerando backup...'; try{ await downloadCurrentUserBackup(); closeLogoutBackupModal(); await finishLogout(); }catch(e){ console.error('Erro ao gerar backup de saída',e); yes.disabled=false; no.disabled=false; yes.textContent='Sim, baixar backup e sair'; alert('Não foi possível gerar o backup. Você pode tentar novamente ou sair sem backup.'); } });
+  }
+
   function renderBackup(){
     return `<div class="section-title">Backup</div><div class="note">Gera um arquivo JSON com as turmas deste professor e os registros pedagógicos dos alunos que constam nessas turmas. O arquivo não altera nem apaga dados do Firestore.</div><div class="card-box"><h4>Backup pedagógico</h4><p class="desc">Inclui turmas, alunos cadastrados, progresso/notas e os Planejamentos Semestrais e Planos de Aula do professor.</p><button class="btn-brass" id="btn-export-backup">Gerar backup JSON</button></div>`;
   }
@@ -2163,17 +2213,7 @@ async function kvList(prefix){
 
   function attachHandlers(){
     const logout = document.getElementById('btn-logout');
-    if (logout) logout.addEventListener('click', async () => {
-      state.professorTab = 'acompanhamento'; state.turmas = []; state.activeTurmaId = null;
-      state.creatingTurma = false; state.newTurmaName = ''; state.newStudentNome = ''; state.newStudentMatricula = '';
-      state.pdfStatus = ''; state.pdfStatusMsg = ''; state.pdfRawText = ''; state.pdfPreview = null;
-      state.suporteTab = null; state.suporteThread = null; state.suporteInbox = null;
-      state.suporteActiveThreadKey = null; state.suporteNewMessage = '';
-      state.authError = ''; state.masterCode = ''; state.loginMatricula = ''; state.signupRole = 'aluno';
-      await logAudit('logout', `${state.user ? state.user.name : 'Usuário'} saiu da plataforma.`);
-      await signOut(auth);
-      // onAuthStateChanged cuida de limpar state.user e voltar para a tela de login.
-    });
+    if (logout) logout.addEventListener('click', () => requestLogoutWithBackup());
 
     document.querySelectorAll('.module-row').forEach(row => {
       row.addEventListener('click', () => {

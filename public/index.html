@@ -465,6 +465,30 @@
     #cont-avancada .planning-field textarea { min-height:140px; }
   }
 
+
+  /* Backup opcional ao sair */
+  #cont-avancada .logout-backup-overlay, .logout-backup-overlay {
+    position:fixed; inset:0; z-index:99999; display:flex; align-items:center; justify-content:center;
+    padding:16px; background:rgba(15,26,36,.62); backdrop-filter:blur(2px);
+  }
+  #cont-avancada .logout-backup-modal, .logout-backup-modal {
+    width:min(474px,calc(100vw - 32px)); background:#fff; border-radius:18px; padding:38px 34px 30px;
+    box-shadow:0 18px 60px rgba(0,0,0,.28); text-align:center; color:#17314d;
+  }
+  #cont-avancada .logout-backup-icon, .logout-backup-icon { font-size:38px; line-height:1; margin-bottom:16px; }
+  #cont-avancada .logout-backup-modal h2, .logout-backup-modal h2 { margin:0 0 10px; font-size:28px; line-height:1.08; }
+  #cont-avancada .logout-backup-modal p, .logout-backup-modal p { margin:0 auto 22px; max-width:390px; color:#617083; font-size:15px; line-height:1.7; }
+  #cont-avancada .logout-backup-modal button, .logout-backup-modal button { width:100%; min-height:42px; border-radius:6px; font-weight:600; font-size:14px; cursor:pointer; }
+  #cont-avancada .logout-backup-primary, .logout-backup-primary { border:0; background:#bf7025; color:#fff; margin-bottom:9px; }
+  #cont-avancada .logout-backup-secondary, .logout-backup-secondary { border:1px solid #d0d8e1; background:#fff; color:#17314d; margin-bottom:10px; }
+  #cont-avancada .logout-backup-cancel, .logout-backup-cancel { border:0!important; background:transparent!important; color:#617083!important; min-height:30px!important; font-weight:500!important; }
+  #cont-avancada .logout-backup-modal button:disabled, .logout-backup-modal button:disabled { opacity:.55; cursor:wait; }
+  @media (max-width:520px){
+    #cont-avancada .logout-backup-modal, .logout-backup-modal { padding:28px 20px 22px; border-radius:14px; }
+    #cont-avancada .logout-backup-modal h2, .logout-backup-modal h2 { font-size:23px; }
+    #cont-avancada .logout-backup-modal p, .logout-backup-modal p { font-size:14px; line-height:1.55; }
+  }
+
 </style>
 </head>
 <body style="margin:0">
