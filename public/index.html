@@ -409,6 +409,25 @@
     font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer;
   }
   #cont-avancada .auth-foot { font-size: 11px; color: #8f8f88; text-align: center; margin-top: 16px; }
+
+  /* Melhorias prioritárias — prazos, bloqueios, suporte e documentação */
+  #cont-avancada .module-row.locked { opacity:.58; cursor:not-allowed; filter:saturate(.55); }
+  #cont-avancada .module-row.locked:hover { transform:none; box-shadow:none; }
+  #cont-avancada .deadline-text { margin-top:7px; font-size:12px; color:var(--ink-soft); }
+  #cont-avancada .deadline-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin:14px 0; }
+  #cont-avancada .deadline-card { border:1px solid var(--line); background:#182536; padding:12px; display:grid; gap:7px; }
+  #cont-avancada .deadline-card input[type=datetime-local], #cont-avancada .support-controls input, #cont-avancada .support-controls select { width:100%; box-sizing:border-box; background:#0F1724; color:var(--ink); border:1px solid #3A4C60; padding:8px; }
+  #cont-avancada .checkline { display:flex; gap:7px; align-items:center; }
+  #cont-avancada .support-dates { font-size:12px; color:var(--ink-soft); margin:8px 0 12px; }
+  #cont-avancada .support-controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; align-items:end; border:1px solid var(--line); background:#182536; padding:12px; margin-bottom:12px; }
+  #cont-avancada .doc-panel h4 { margin-top:20px; }
+  #cont-avancada .checklist-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:10px; margin-top:14px; }
+  #cont-avancada .check-item { border:1px solid var(--line); padding:12px; display:flex; justify-content:space-between; gap:12px; }
+  #cont-avancada .check-item.ok { border-left:4px solid var(--green); }
+  #cont-avancada .check-item.warn { border-left:4px solid var(--rule); }
+  #cont-avancada .check-item span { color:var(--ink-soft); font-size:12px; text-align:right; }
+  @media (max-width:800px){ #cont-avancada .support-controls,#cont-avancada .deadline-grid,#cont-avancada .checklist-grid{grid-template-columns:1fr;} }
+
 </style>
 </head>
 <body style="margin:0">
