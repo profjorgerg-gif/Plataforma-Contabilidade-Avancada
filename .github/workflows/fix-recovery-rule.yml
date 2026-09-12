@@ -29,3 +29,5 @@ jobs:
           git add public/app.js
           git commit -m 'Corrige regra de substituicao pela recuperacao'
           git push
+
+# executor técnico temporário
