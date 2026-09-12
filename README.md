@@ -151,3 +151,8 @@ Para que o mesmo workflow consiga publicar `firestore.rules`, o Service Account 
 - A Nota do Módulo é calculada automaticamente após o ciclo avaliativo completo.
 - O próximo módulo permanece bloqueado até a liberação individual do professor.
 - A aba Pendências mostra os alunos que aguardam essa liberação, além de cadastros e mensagens pendentes.
+
+
+## Planejamento docente
+
+O perfil Professor possui o menu **Planejamento**, organizado em **Cadastros**, **Planejamento Semestral** e **Plano de Aula**. Em Cadastros ficam Cabeçalho, Escolas, Cursos, Turmas e Disciplinas. As Turmas reutilizam o cadastro principal da plataforma, e a única disciplina disponível é **Contabilidade Avançada (CA)**. Os planejamentos podem ser salvos, editados e impressos/salvos em PDF. O Plano de Aula exige data de início e fim, com período máximo de 30 dias e sem sobreposição para a mesma turma.

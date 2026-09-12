@@ -428,6 +428,43 @@
   #cont-avancada .check-item span { color:var(--ink-soft); font-size:12px; text-align:right; }
   @media (max-width:800px){ #cont-avancada .support-controls,#cont-avancada .deadline-grid,#cont-avancada .checklist-grid{grid-template-columns:1fr;} }
 
+
+  /* Planejamento docente — formulário proporcional e responsivo */
+  #cont-avancada .planning-card { width:100%; max-width:none; }
+  #cont-avancada .planning-grid {
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px 18px; align-items:start; width:100%;
+  }
+  #cont-avancada .planning-field { min-width:0; margin:0; }
+  #cont-avancada .planning-full { grid-column:1 / -1; }
+  #cont-avancada .planning-field label { margin:0 0 6px; font-weight:500; }
+  #cont-avancada .planning-field input,
+  #cont-avancada .planning-field select,
+  #cont-avancada .planning-field textarea,
+  #cont-avancada [data-planning-class-mode] {
+    display:block; width:100%; max-width:none; min-width:0;
+    padding:10px 12px; border:1px solid var(--line); border-radius:4px;
+    background:var(--card); color:var(--ink); font:inherit; line-height:1.45;
+  }
+  #cont-avancada .planning-field textarea { min-height:118px; resize:vertical; overflow:auto; }
+  #cont-avancada .planning-field input[readonly] { opacity:.88; cursor:not-allowed; }
+  #cont-avancada .planning-field input:focus,
+  #cont-avancada .planning-field select:focus,
+  #cont-avancada .planning-field textarea:focus { outline:2px solid var(--brass); outline-offset:1px; }
+  #cont-avancada .planning-main-tabs { flex-wrap:wrap; }
+  #cont-avancada .planning-catalog-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 18px; }
+  #cont-avancada .planning-catalog-tab {
+    border:1px solid var(--line); border-radius:18px; padding:8px 14px;
+    background:var(--card); color:var(--ink-soft); cursor:pointer; font:inherit;
+  }
+  #cont-avancada .planning-catalog-tab.active { border-color:var(--brass); color:var(--ink); font-weight:600; }
+  #cont-avancada .planning-card-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  @media (max-width:800px) {
+    #cont-avancada .planning-grid, #cont-avancada .planning-card-grid { grid-template-columns:1fr; }
+    #cont-avancada .planning-full { grid-column:1; }
+    #cont-avancada .planning-field textarea { min-height:140px; }
+  }
+
 </style>
 </head>
 <body style="margin:0">
