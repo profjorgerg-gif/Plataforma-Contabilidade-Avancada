@@ -1,0 +1,203 @@
+diff --git a/firestore.rules b/firestore.rules
+index 0dddb36..cf93922 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -9,21 +9,18 @@ service cloud.firestore {
+     function myRole() {
+       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+     }
++    function isActiveUser() {
++      return isSignedIn() && myRole() in ['aluno', 'professor', 'admin'];
++    }
+     function isProfessorOrAdmin() {
+       return isSignedIn() && myRole() in ['professor', 'admin'];
+     }
+ 
+-    // Perfil de cada usuário (nome, e-mail, perfil: aluno | professor | admin)
++    // Perfil de cada usuário. Professores novos entram como pending_professor
++    // e somente um Usuário Mestre pode promovê-los a professor.
+     match /users/{uid} {
+-      allow read: if isSignedIn();
+-      // Qualquer usuário autenticado cria o próprio perfil na primeira vez
+-      // que entra (o papel escolhido, incluindo "admin" via Código de
+-      // Mestre, é decidido pelo próprio app na hora do primeiro login).
++      allow read: if isSignedIn() && (request.auth.uid == uid || myRole() == 'admin');
+       allow create: if isSignedIn() && request.auth.uid == uid;
+-      // Um usuário pode atualizar o PRÓPRIO documento, desde que não mude
+-      // o próprio "role" (evita autopromoção). Só um Usuário Mestre pode
+-      // alterar o "role" de qualquer conta, inclusive a de outras pessoas —
+-      // é assim que o painel de Usuários funciona.
+       allow update: if isSignedIn() && (
+         (request.auth.uid == uid && request.resource.data.role == resource.data.role) ||
+         myRole() == 'admin'
+@@ -31,20 +28,10 @@ service cloud.firestore {
+       allow delete: if false;
+     }
+ 
+-    // Armazenamento chave-valor genérico usado pelo app (progresso dos
+-    // alunos, turmas, mensagens de suporte, log de auditoria). O controle
+-    // fino de acesso é feito pelo prefixo da chave (o ID do documento).
++    // Armazenamento pedagógico da plataforma. Contas pending_professor ficam
++    // sem acesso até a aprovação do Usuário Mestre.
+     match /kv_store/{key} {
+-      allow read: if isSignedIn();
+-      allow write: if isSignedIn();
+-      // Nota: para uma turma real, vale refinar isso por prefixo (ex:
+-      // só o próprio aluno grava em "student:<nome-dele>"), mas como a
+-      // identificação hoje é pelo nome digitado no cadastro (não pelo
+-      // uid), a validação fina fica mais robusta numa próxima etapa,
+-      // migrando as chaves de "nome" para "uid". Por ora, qualquer
+-      // usuário autenticado (aluno, professor ou admin) pode ler e
+-      // escrever — adequado para uso interno de uma turma, não para
+-      // dados sensíveis ou uso em produção aberta ao público.
++      allow read, write: if isActiveUser();
+     }
+   }
+ }
+diff --git a/public/app.js b/public/app.js
+index d652d16..d9a8ec5 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -732,8 +732,10 @@ async function kvList(prefix){
+ 
+     // ---- Auditoria / Correções pendentes (professor) ----
+     auditLog: [],
+-    correcoesPendentes: { incompletos: [], mensagensPendentes: [] },
+-    usuarios: []
++    correcoesPendentes: { incompletos: [], mensagensPendentes: [], modulosPendentes: [] },
++    usuarios: [],
++    reportTurmaFilter: '',
++    accessPendingMessage: ''
+   };
+ 
+   function emptyProgress(name){
+@@ -759,15 +761,22 @@ async function kvList(prefix){
+           if (!parsed.modules[m.id]) {
+             parsed.modules[m.id] = {
+               contentRead:false, exerciseListsDone: new Array(m.exerciseLists.length).fill(false),
+-              quizScore:null, quizTotal:m.quiz.length, recoveryScore:null, recoveryTotal:m.recovery.length
++              exerciseScores:new Array(m.exerciseLists.length).fill(null),
++              quizScore:null, quizTotal:m.quiz.length, recoveryScore:null, recoveryTotal:m.recovery.length,
++              correction:{ status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] }
+             };
+           } else {
+             const mp = parsed.modules[m.id];
+             if (!Array.isArray(mp.exerciseListsDone)) mp.exerciseListsDone = new Array(m.exerciseLists.length).fill(false);
+             while (mp.exerciseListsDone.length < m.exerciseLists.length) mp.exerciseListsDone.push(false);
++            if (!Array.isArray(mp.exerciseScores)) mp.exerciseScores = new Array(m.exerciseLists.length).fill(null);
++            while (mp.exerciseScores.length < m.exerciseLists.length) mp.exerciseScores.push(null);
+             if (mp.quizTotal === undefined) mp.quizTotal = m.quiz.length;
+             if (mp.recoveryScore === undefined) mp.recoveryScore = null;
+             if (mp.recoveryTotal === undefined) mp.recoveryTotal = m.recovery.length;
++            if (!mp.correction) mp.correction = { status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] };
++            if (!Array.isArray(mp.correction.history)) mp.correction.history = [];
++            if (mp.correction.released === undefined) mp.correction.released = mp.correction.status === 'corrigido';
+           }
+         });
+         return parsed;
+@@ -887,7 +896,7 @@ async function kvList(prefix){
+       const r = await kvGet('support:' + kind + ':' + participantKey);
+       if (r && r.value) return JSON.parse(r.value);
+     } catch(e){}
+-    return { participantName: participantKey, messages: [] };
++    return { participantName: participantKey, protocol:'', status:'aberto', createdAt:null, updatedAt:null, messages: [] };
+   }
+   async function saveThread(kind, thread){
+     try { await kvSet('support:' + kind + ':' + thread.participantName, JSON.stringify(thread)); }
+@@ -974,8 +983,11 @@ async function kvList(prefix){
+       if (!state.suporteActiveThreadKey) return;
+       kind = suporteInboxKind(); participantKey = state.suporteActiveThreadKey;
+     }
+-    const thread = state.suporteThread || { participantName: participantKey, messages: [] };
++    const thread = state.suporteThread || { participantName: participantKey, protocol:'', status:'aberto', createdAt:null, updatedAt:null, messages: [] };
+     thread.participantName = participantKey;
++    if (!thread.protocol){ const d=new Date(); thread.protocol='SUP-'+d.toISOString().slice(0,10).replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,7).toUpperCase(); thread.createdAt=Date.now(); }
++    if (thread.status === 'encerrado') thread.status='aberto';
++    thread.updatedAt=Date.now();
+     thread.messages.push({ from: role, name: state.user.name, text, ts: Date.now() });
+     await saveThread(kind, thread);
+     state.suporteThread = thread;
+@@ -1028,9 +1040,54 @@ async function kvList(prefix){
+     let mensagensPendentes = [];
+     try {
+       const threads = await listThreads('aluno-professor');
+-      mensagensPendentes = threads.filter(t => t.messages.length && t.messages[t.messages.length-1].from === 'aluno');
++      mensagensPendentes = threads.filter(t => t.status !== 'encerrado' && t.messages.length && t.messages[t.messages.length-1].from === 'aluno');
+     } catch(e){}
+-    state.correcoesPendentes = { incompletos, mensagensPendentes };
++    const modulosPendentes = [];
++    const roster = await loadRoster();
++    roster.forEach(st => MODULES.forEach(m => {
++      const mp = st.modules && st.modules[m.id]; const c = correctionState(mp);
++      if (c.status === 'em_correcao') modulosPendentes.push({ student:st, module:m, mp, correction:c });
++    }));
++    state.roster = roster;
++    state.correcoesPendentes = { incompletos, mensagensPendentes, modulosPendentes };
++  }
++
++  function correctionState(mp){
++    if (!mp || !mp.correction) return { status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] };
++    return mp.correction;
++  }
++  function statusLabel(status){
++    return ({ liberado:'Em desenvolvimento', em_correcao:'Enviado para correção', ajustes:'Ajustes solicitados', corrigido:'Corrigido' })[status] || 'Em desenvolvimento';
++  }
++  function score10(score,total){
++    if (score === null || score === undefined || !total) return null;
++    return Math.round((Number(score)/Number(total))*100)/10;
++  }
++  function exerciseAverage10(mp){
++    if (!mp || !Array.isArray(mp.exerciseScores)) return null;
++    const vals = mp.exerciseScores.filter(v => v !== null && v !== undefined).map(v => Number(v));
++    if (!vals.length) return null;
++    return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
++  }
++  function automaticModuleGrade(mp){
++    if (!mp) return null;
++    const ex = exerciseAverage10(mp);
++    const q = score10(mp.quizScore, mp.quizTotal || 10);
++    const r = score10(mp.recoveryScore, mp.recoveryTotal || 10);
++    const avaliacao = r === null ? q : (q === null ? r : Math.max(q,r));
++    if (ex === null && avaliacao === null) return null;
++    if (ex === null) return avaliacao;
++    if (avaliacao === null) return ex;
++    return Math.round(((ex + avaliacao)/2)*10)/10;
++  }
++  function moduleReadyForSubmission(mp, m){
++    return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.length >= m.exerciseLists.length && mp.exerciseScores.slice(0,m.exerciseLists.length).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
++  }
++  function fmtGrade(v){ return (v === null || v === undefined || Number.isNaN(Number(v))) ? '—' : Number(v).toFixed(1).replace('.',','); }
++  function correctionBadge(mp){
++    const c = correctionState(mp);
++    const cls = c.status === 'corrigido' ? 'ok' : (c.status === 'ajustes' ? 'warn' : (c.status === 'em_correcao' ? 'info' : 'neutral'));
++    return `<span class="status-badge ${cls}">${esc(statusLabel(c.status))}</span>`;
+   }
+ 
+   function pctModule(mp, m){
+@@ -1055,6 +1112,7 @@ async function kvList(prefix){
+   function render(){
+     if (state.view === 'loading') { root.innerHTML = `<div class="empty-state">Carregando…</div>`; return; }
+     if (state.view === 'login') { renderLogin(); return; }
++    if (state.view === 'access-pending') { renderAccessPending(); return; }
+ 
+     const roleLabel = state.user.role === 'professor' ? 'Professor' : (state.user.role === 'admin' ? 'Usuário Mestre' : 'Aluno');
+     let inner = `<div class="masthead"><div class="masthead-row">
+@@ -1087,7 +1145,7 @@ async function kvList(prefix){
+     const role = state.user.role;
+     let items;
+     if (role === 'aluno') items = [['dashboard','Início'],['notas','Minhas Notas'],['manual','Manual do Aluno'],['suporte','Suporte']];
+-    else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:auditoria','Auditoria'],['professor:correcoes','Correções Pendentes'],['manual','Manual do Professor'],['suporte','Suporte']];
++    else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:correcoes','Correções Pendentes'],['professor:relatorios','Relatórios'],['professor:backup','Backup'],['professor:auditoria','Auditoria'],['manual','Manual do Professor'],['suporte','Suporte']];
+     else items = [['suporte','Suporte'],['usuarios','Usuários']];
+ 
+     return `<div class="topnav">` + items.map(([key,label]) => {
+@@ -1101,6 +1159,22 @@ async function kvList(prefix){
+     }).join('') + `</div>`;
+   }
+ 
++  function renderAccessPending(){
++    root.innerHTML = `<div class="auth-shell"><div class="auth-left">
++      <div class="auth-brand"><div class="auth-logo">✓</div><div><div class="auth-kicker">CEDUP HERMANN HERING</div><div class="auth-sub">Contabilidade Avançada</div></div></div>
++      <h1>Acesso de Professor<br/>aguardando aprovação</h1>
++      <p class="auth-desc">Sua conta Google foi autenticada, mas o acesso como Professor(a) precisa ser liberado por um Usuário Mestre antes da entrada na plataforma.</p>
++    </div><div class="auth-right"><div class="auth-card">
