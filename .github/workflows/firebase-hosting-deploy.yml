@@ -1,10 +1,5 @@
 name: Deploy para o Firebase Hosting
 
-# Este workflow é OPCIONAL. Enquanto você não configurar o segredo
-# FIREBASE_SERVICE_ACCOUNT (veja o README, seção "Deploy automático via
-# GitHub Actions"), ele simplesmente não vai rodar com sucesso — não tem
-# problema nenhum ignorá-lo e publicar manualmente com "firebase deploy".
-
 on:
   push:
     branches:
@@ -15,6 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Preparar credenciais do Firebase
+        shell: bash
+        run: |
+          printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "${RUNNER_TEMP}/firebase-service-account.json"
+
+      - name: Publicar regras do Firestore
+        run: npx --yes firebase-tools@latest deploy --only firestore:rules --project ca-contabilidade-avancada --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
