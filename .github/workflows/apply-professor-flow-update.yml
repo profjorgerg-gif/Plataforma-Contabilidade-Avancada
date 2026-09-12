@@ -18,7 +18,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Corrigir executor temporario
-        run: sed -i "s/re.subn(pattern, repl, s, count=1, flags=flags)/re.subn(pattern, lambda m: repl, s, count=1, flags=flags)/" .github/scripts/apply_professor_flow_update.py
+        run: |
+          sed -i "s/re.subn(pattern, repl, s, count=1, flags=flags)/re.subn(pattern, lambda m: repl, s, count=1, flags=flags)/" .github/scripts/apply_professor_flow_update.py
 
       - name: Aplicar atualizacao
         run: python .github/scripts/apply_professor_flow_update.py
