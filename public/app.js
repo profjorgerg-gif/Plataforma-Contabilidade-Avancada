@@ -1185,6 +1185,39 @@ async function kvList(prefix){
   }
   function moduleDeadlineText(m){ const a=moduleAccess(m); if(!a.deadline) return 'Prazo não definido'; return 'Prazo: '+new Date(a.deadline).toLocaleString('pt-BR')+(a.late?' · entrega em atraso':''); }
 
+  function exerciseListDone(mp, index){
+
+
+    return !!(mp && Array.isArray(mp.exerciseScores) && mp.exerciseScores[index] !== null && mp.exerciseScores[index] !== undefined);
+
+
+  }
+
+
+  function nextExerciseListIndex(mp, m){
+
+
+    for (let i=0; i<m.exerciseLists.length; i++) if (!exerciseListDone(mp,i)) return i;
+
+
+    return m.exerciseLists.length;
+
+
+  }
+
+
+  function exerciseListLocked(mp, m, index){
+
+
+    if (exerciseListDone(mp,index)) return false;
+
+
+    return index !== nextExerciseListIndex(mp,m);
+
+
+  }
+
+
   function moduleReadyForSubmission(mp, m){
     return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.length >= m.exerciseLists.length && mp.exerciseScores.slice(0,m.exerciseLists.length).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
   }
@@ -1427,7 +1460,7 @@ async function kvList(prefix){
     <p>No menu "Início" você encontra os 5 módulos da disciplina. O avanço é sequencial: o próximo módulo é liberado somente após a correção e liberação do anterior. Os prazos definidos pelo professor aparecem nos cartões. Cada módulo tem quatro abas:</p>
     <ul>
       <li><b>Conteúdo</b> — teoria, exemplos numéricos e lançamentos contábeis;</li>
-      <li><b>Exercícios</b> — 5 listas de 10 questões cada, autocorrigidas ao enviar cada lista;</li>
+      <li><b>Exercícios</b> — 5 listas de 10 questões cada, realizadas obrigatoriamente em sequência. Após corrigir uma lista, a nota fica registrada, ela passa a constar como "Feita" e não pode ser refeita; somente então a lista seguinte é liberada;</li>
       <li><b>Quiz</b> — avaliação única que vale nota, corrigida na hora;</li>
       <li><b>Recuperação</b> — avaliação paralela, com questões diferentes do quiz, que pode ser feita a qualquer momento como prática extra ou para tentar melhorar seu desempenho no módulo.</li>
     </ul>
@@ -1798,23 +1831,34 @@ async function kvList(prefix){
       html += `<button class="mark-btn" id="btn-read" ${mp.contentRead?'disabled':''}>${mp.contentRead ? '✓ Conteúdo marcado como lido' : 'Marcar conteúdo como lido'}</button>`;
 
     } else if (state.activeTab === 'exercicios'){
-      let sub = `<div class="sublist-tabs">`;
-      m.exerciseLists.forEach((l,i) => {
-        const done = mp.exerciseListsDone[i];
-        sub += `<div class="sub-tab ${state.activeExerciseList===i?'active':''}" data-list="${i}">Lista ${i+1}${done?'<span class="dot"></span>':''}</div>`;
-      });
-      sub += `</div>`;
-      html += sub;
-      const list = m.exerciseLists[state.activeExerciseList];
-      const listScore = mp.exerciseScores[state.activeExerciseList];
-      html += `<h4 style="margin-top:0">${esc(list.title)} <span style="font-weight:400;color:var(--ink-soft);font-size:13px">— 10 questões · autocorreção</span></h4>`;
-      if (listScore !== null && listScore !== undefined){
-        html += `<div class="quiz-score">Lista concluída. Resultado: <b>${fmtGrade(listScore)} / 10,0</b>.</div>`;
-      } else {
-        html += `<form id="exercise-form">`;
-        list.items.forEach((it,idx) => { html += renderExerciseItem(it, idx); });
-        html += `<button class="mark-btn" type="submit">Corrigir lista</button></form>`;
-      }
+  const nextList = nextExerciseListIndex(mp,m);
+  if (!exerciseListDone(mp,state.activeExerciseList) && exerciseListLocked(mp,m,state.activeExerciseList)) {
+    state.activeExerciseList = nextList < m.exerciseLists.length ? nextList : Math.max(0,m.exerciseLists.length-1);
+  }
+  let sub = `<div class="sublist-tabs">`;
+  m.exerciseLists.forEach((l,i) => {
+    const done = exerciseListDone(mp,i);
+    const locked = exerciseListLocked(mp,m,i);
+    const label = done ? `Lista ${i+1} ✓ Feita` : (locked ? `Lista ${i+1} 🔒` : `Lista ${i+1}`);
+    sub += `<div class="sub-tab ${state.activeExerciseList===i?'active':''} ${done?'done':''} ${locked?'locked':''}" data-list="${i}" data-locked="${locked?'1':'0'}">${label}</div>`;
+  });
+  sub += `</div>`;
+  html += sub;
+  const list = m.exerciseLists[state.activeExerciseList];
+  const listScore = mp.exerciseScores[state.activeExerciseList];
+  const currentLocked = exerciseListLocked(mp,m,state.activeExerciseList);
+  html += `<h4 style="margin-top:0">${esc(list.title)} <span style="font-weight:400;color:var(--ink-soft);font-size:13px">— 10 questões · autocorreção</span></h4>`;
+  if (listScore !== null && listScore !== undefined){
+    html += `<div class="quiz-score"><b>✓ Exercício feito.</b> Nota registrada: <b>${fmtGrade(listScore)} / 10,0</b>.<br><span class="thread-preview">Esta lista já foi concluída e não pode ser refeita.</span></div>`;
+    if (nextList < m.exerciseLists.length) html += `<p class="thread-preview">Próxima atividade liberada: <b>Lista ${nextList+1}</b>.</p>`;
+  } else if (currentLocked){
+    html += `<div class="empty-state">Esta lista ainda está bloqueada. Conclua primeiro a lista anterior.</div>`;
+  } else {
+    html += `<div class="note">Esta é a próxima lista disponível. Após a correção, a nota ficará registrada e esta lista não poderá ser refeita.</div>`;
+    html += `<form id="exercise-form">`;
+    list.items.forEach((it,idx) => { html += renderExerciseItem(it, idx); });
+    html += `<button class="mark-btn" type="submit">Corrigir e finalizar lista</button></form>`;
+  }
 
     } else if (state.activeTab === 'quiz'){
       if (mp.quizScore !== null){
@@ -1892,7 +1936,7 @@ async function kvList(prefix){
     });
 
     document.querySelectorAll('.sub-tab').forEach(t => {
-      t.addEventListener('click', () => { state.activeExerciseList = parseInt(t.getAttribute('data-list'),10); render(); });
+      t.addEventListener('click', () => { if (t.getAttribute('data-locked') === '1') return; state.activeExerciseList = parseInt(t.getAttribute('data-list'),10); render(); });
     });
 
     const btnRead = document.getElementById('btn-read');
@@ -1903,15 +1947,20 @@ async function kvList(prefix){
     });
 
     const exerciseForm = document.getElementById('exercise-form');
-    if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const m=MODULES.find(x=>x.id===state.activeModuleId), list=m.exerciseLists[state.activeExerciseList], fd=new FormData(exerciseForm); let score=0, results=[];
-      list.items.forEach((it,i)=>{const raw=fd.get('e'+i); let ok=false, correctText=''; if(it.type==='mc'){const chosen=raw===null?-1:parseInt(raw,10); ok=chosen===it.correct; correctText=it.opts[it.correct];} else {const chosen=raw==='1'; ok=chosen===it.correct; correctText=it.correct?'Verdadeiro':'Falso';} if(ok) score++; results.push({ok,correctText,note:it.note||''});});
-      const mp=state.progress.modules[state.activeModuleId]; mp.exerciseScores[state.activeExerciseList]=score; mp.exerciseListsDone[state.activeExerciseList]=true; await saveProgress(state.progress); await logAudit('lista_autocorrigida',`${state.user.name} concluiu a Lista ${state.activeExerciseList+1} do módulo "${m.title}" — ${score}/10.`);
-      let out=`<div class="quiz-score">Resultado: <b>${score} de 10</b> acertos — nota <b>${fmtGrade(score)} / 10,0</b>.</div>`;
-      list.items.forEach((it,i)=>{const r=results[i]; out+=`<div class="quiz-q"><p class="q">${i+1}. ${esc(it.q)}</p><div class="quiz-result ${r.ok?'ok':'bad'}">${r.ok?'✓ Correto.':'✗ Resposta correta: '+esc(r.correctText)+'.'} ${esc(r.note)}</div></div>`;});
-      exerciseForm.parentElement.innerHTML=out;
-    });
+if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const m=MODULES.find(x=>x.id===state.activeModuleId);
+  const mp=state.progress.modules[state.activeModuleId];
+  const current=state.activeExerciseList;
+  if (exerciseListDone(mp,current)) { render(); return; }
+  if (exerciseListLocked(mp,m,current)) { state.activeExerciseList=nextExerciseListIndex(mp,m); render(); return; }
+  const list=m.exerciseLists[current], fd=new FormData(exerciseForm); let score=0;
+  list.items.forEach((it,i)=>{const raw=fd.get('e'+i); let ok=false; if(it.type==='mc'){const chosen=raw===null?-1:parseInt(raw,10); ok=chosen===it.correct;} else {const chosen=raw==='1'; ok=chosen===it.correct;} if(ok) score++;});
+  mp.exerciseScores[current]=score; mp.exerciseListsDone[current]=true;
+  await saveProgress(state.progress);
+  await logAudit('lista_autocorrigida',`${state.user.name} concluiu a Lista ${current+1} do módulo "${m.title}" — ${score}/10. Lista encerrada sem possibilidade de refazer.`);
+  render();
+});
 
     const btnSubmitModule=document.getElementById('btn-submit-module');
     if(btnSubmitModule) btnSubmitModule.addEventListener('click',async()=>{const m=MODULES.find(x=>x.id===state.activeModuleId),mp=state.progress.modules[m.id],c=correctionState(mp),access=moduleAccess(m); if(access.locked){alert(access.reason); state.view='dashboard'; render(); return;} const now=Date.now(); if(!c.firstSubmittedAt){c.firstSubmittedAt=now; c.latePenalty=access.late?2:0; c.late=!!access.late;} c.status='em_correcao'; c.submittedAt=now; c.feedback=''; c.released=false; c.history.push({type:'envio',ts:now,autoGrade:effectiveModuleGrade(mp),late:!!c.late,latePenalty:Number(c.latePenalty||0)}); mp.correction=c; await saveProgress(state.progress); await logAudit('modulo_enviado_correcao',`${state.user.name} enviou o módulo "${m.title}" para correção${c.latePenalty?' com desconto de 2,0 pontos por atraso':''}.`); render();});
