@@ -744,8 +744,10 @@ async function kvList(prefix){
       modules[m.id] = {
         contentRead:false,
         exerciseListsDone: new Array(m.exerciseLists.length).fill(false),
+        exerciseScores: new Array(m.exerciseLists.length).fill(null),
         quizScore:null, quizTotal: m.quiz.length,
-        recoveryScore:null, recoveryTotal: m.recovery.length
+        recoveryScore:null, recoveryTotal: m.recovery.length,
+        correction:{ status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[] }
       };
     });
     return { name, updatedAt: Date.now(), modules };
@@ -1043,7 +1045,8 @@ async function kvList(prefix){
       mensagensPendentes = threads.filter(t => t.status !== 'encerrado' && t.messages.length && t.messages[t.messages.length-1].from === 'aluno');
     } catch(e){}
     const modulosPendentes = [];
-    const roster = await loadRoster();
+    const allRoster = await loadRoster();
+    const roster = professorRoster(allRoster);
     roster.forEach(st => MODULES.forEach(m => {
       const mp = st.modules && st.modules[m.id]; const c = correctionState(mp);
       if (c.status === 'em_correcao') modulosPendentes.push({ student:st, module:m, mp, correction:c });
@@ -1104,6 +1107,16 @@ async function kvList(prefix){
     if (!progress) return 0;
     const vals = MODULES.map(m => pctModule(progress.modules[m.id], m));
     return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+  }
+  function professorRoster(roster){
+    const source = roster || state.roster || [];
+    if (!state.user || state.user.role !== 'professor') return source;
+    const names = new Set();
+    (state.turmas || []).forEach(t => (t.students || []).forEach(a => {
+      const n = (a.nome || '').trim().toLocaleLowerCase('pt-BR');
+      if (n) names.add(n);
+    }));
+    return source.filter(st => names.has((st.name || '').trim().toLocaleLowerCase('pt-BR')));
   }
 
   function esc(s){ return (s||'').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -1492,7 +1505,7 @@ async function kvList(prefix){
   }
 
   function renderAcompanhamento(){
-    const roster = state.roster || [];
+    const roster = professorRoster(state.roster || []);
     let html = `<div class="note">Notas por módulo: valor em destaque = Nota Final liberada; quando ainda não liberada, é exibida a nota automática com indicação da situação.</div>`;
     html += `<div class="section-title">Notas da Turma (${roster.length} aluno${roster.length===1?'':'s'})</div>`;
     html += `<div class="toolbar"><button class="btn-outline" id="btn-print-report">Imprimir / Salvar PDF</button><button class="btn-brass" id="btn-export-grades">Exportar CSV</button></div>`;
@@ -1510,7 +1523,7 @@ async function kvList(prefix){
   function downloadText(filename,text,type){ const blob=new Blob([text],{type:type||'text/plain;charset=utf-8'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
   function gradesCsv(){
     const rows=[['Aluno',...MODULES.map(m=>'M'+m.num+' Nota Final'),...MODULES.map(m=>'M'+m.num+' Status'),'Média Final']];
-    (state.roster||[]).forEach(st=>{let vals=[], rel=[]; MODULES.forEach(m=>{const c=correctionState(st.modules[m.id]); vals.push(c.released?fmtGrade(c.finalGrade):''); if(c.released&&c.finalGrade!==null) rel.push(Number(c.finalGrade));}); const sts=MODULES.map(m=>statusLabel(correctionState(st.modules[m.id]).status)); rows.push([st.name,...vals,...sts,rel.length?fmtGrade(rel.reduce((a,b)=>a+b,0)/rel.length):'']);});
+    professorRoster(state.roster||[]).forEach(st=>{let vals=[], rel=[]; MODULES.forEach(m=>{const c=correctionState(st.modules[m.id]); vals.push(c.released?fmtGrade(c.finalGrade):''); if(c.released&&c.finalGrade!==null) rel.push(Number(c.finalGrade));}); const sts=MODULES.map(m=>statusLabel(correctionState(st.modules[m.id]).status)); rows.push([st.name,...vals,...sts,rel.length?fmtGrade(rel.reduce((a,b)=>a+b,0)/rel.length):'']);});
     return '\ufeff'+rows.map(r=>r.map(csvEscape).join(';')).join('\n');
   }
   function renderRelatorios(){
@@ -2053,7 +2066,7 @@ async function kvList(prefix){
     }));
     const exportGrades=document.getElementById('btn-export-grades'); if(exportGrades) exportGrades.addEventListener('click',()=>downloadText('notas_contabilidade_avancada.csv',gradesCsv(),'text/csv;charset=utf-8'));
     const printReport=document.getElementById('btn-print-report'); if(printReport) printReport.addEventListener('click',()=>window.print());
-    const exportBackup=document.getElementById('btn-export-backup'); if(exportBackup) exportBackup.addEventListener('click',()=>{const names=new Set(); (state.turmas||[]).forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim()))); const alunos=(state.roster||[]).filter(r=>names.size===0||names.has((r.name||'').trim())); const payload={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),professor:state.user.name,turmas:state.turmas,alunos}; downloadText(`backup_contabilidade_avancada_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json;charset=utf-8'); logAudit('backup_exportado',`${state.user.name} gerou backup pedagógico.`);});
+    const exportBackup=document.getElementById('btn-export-backup'); if(exportBackup) exportBackup.addEventListener('click',()=>{const names=new Set(); (state.turmas||[]).forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim()))); const alunos=(state.roster||[]).filter(r=>names.has((r.name||'').trim())); const payload={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),professor:state.user.name,turmas:state.turmas,alunos}; downloadText(`backup_contabilidade_avancada_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json;charset=utf-8'); logAudit('backup_exportado',`${state.user.name} gerou backup pedagógico.`);});
 
     const toggleSupport=document.getElementById('btn-toggle-support-status'); if(toggleSupport) toggleSupport.addEventListener('click',async()=>{const thread=state.suporteThread; if(!thread)return; thread.status=thread.status==='encerrado'?'aberto':'encerrado'; thread.updatedAt=Date.now(); const kind = state.user.role==='professor' ? (state.suporteTab==='alunos'?'aluno-professor':'professor-admin') : suporteInboxKind(); await saveThread(kind,thread); await logAudit('status_suporte',`${state.user.name} alterou o chamado ${thread.protocol||''} para ${thread.status}.`); if((state.user.role==='professor'&&state.suporteTab==='alunos')||state.user.role==='admin') state.suporteInbox=await listThreads(suporteInboxKind()); render();});
 
