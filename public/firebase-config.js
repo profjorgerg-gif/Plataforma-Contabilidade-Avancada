@@ -16,3 +16,5 @@ export const firebaseConfig = {
   messagingSenderId: "914321320430",
   appId: "1:914321320430:web:88e654703788eacf8e06ff"
 };
+export const MASTER_CODE = "623251@_@prof
+  
