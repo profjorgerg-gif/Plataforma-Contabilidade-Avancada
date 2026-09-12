@@ -1,0 +1,146 @@
+-    if (!data.incompletos.length){
+-      html += `<div class="empty-state">Nenhum cadastro pendente de correção.</div>`;
+-    } else {
+-      html += `<table class="roster"><tr><th>Turma</th><th>Nome</th><th>Matrícula</th><th></th></tr>`;
+-      data.incompletos.forEach(it => {
+-        html += `<tr>
+-          <td>${esc(it.turmaName)}</td>
+-          <td>${esc(it.nome || '—')}</td>
+-          <td>${esc(it.matricula || '—')}</td>
+-          <td><span class="link-btn" data-fix-turma="${esc(it.turmaId)}" style="color:var(--brass)">corrigir →</span></td>
+-        </tr>`;
+-      });
+-      html += `</table>`;
+-    }
++    html += `<div class="note">Módulos enviados pelos alunos para revisão, além de inconsistências cadastrais e mensagens aguardando resposta.</div>`;
++    html += `<h4 style="margin:18px 0 8px">Módulos aguardando revisão (${(data.modulosPendentes||[]).length})</h4>`;
++    if (!(data.modulosPendentes||[]).length) html += `<div class="empty-state">Nenhum módulo aguardando correção.</div>`;
++    else (data.modulosPendentes||[]).forEach((it,idx)=>{
++      const auto=automaticModuleGrade(it.mp); const c=it.correction;
++      html += `<div class="review-card"><div class="review-head"><div><b>${esc(it.student.name)}</b><div class="thread-preview">M${it.module.num} — ${esc(it.module.title)}</div></div>${correctionBadge(it.mp)}</div>
++        <div class="review-grid"><div><span>Média listas</span><b>${fmtGrade(exerciseAverage10(it.mp))}</b></div><div><span>Quiz</span><b>${fmtGrade(score10(it.mp.quizScore,it.mp.quizTotal))}</b></div><div><span>Recuperação</span><b>${fmtGrade(score10(it.mp.recoveryScore,it.mp.recoveryTotal))}</b></div><div><span>Nota automática</span><b>${fmtGrade(auto)}</b></div></div>
++        <label>Nota Final (0,0 a 10,0)</label><input type="number" min="0" max="10" step="0.1" class="grade-input" data-grade-input="${idx}" value="${auto===null?'':auto}">
++        <label>Feedback ao aluno</label><textarea class="review-feedback" data-feedback-input="${idx}" placeholder="Feedback opcional">${esc(c.feedback||'')}</textarea>
++        <div class="review-actions"><button class="btn-outline" data-return-module="${idx}">Devolver para ajustes</button><button class="btn-brass" data-approve-module="${idx}">Aprovar e liberar nota</button></div>
++      </div>`;
++    });
+ 
++    html += `<h4 style="margin:26px 0 8px">Cadastros de alunos a corrigir (${data.incompletos.length})</h4>`;
++    if (!data.incompletos.length) html += `<div class="empty-state">Nenhum cadastro pendente de correção.</div>`;
++    else { html += `<table class="roster"><tr><th>Turma</th><th>Nome</th><th>Matrícula</th><th></th></tr>`; data.incompletos.forEach(it=>{html += `<tr><td>${esc(it.turmaName)}</td><td>${esc(it.nome||'—')}</td><td>${esc(it.matricula||'—')}</td><td><span class="link-btn" data-fix-turma="${esc(it.turmaId)}" style="color:var(--brass)">corrigir →</span></td></tr>`}); html += `</table>`; }
+     html += `<h4 style="margin:26px 0 8px">Mensagens de alunos aguardando resposta (${data.mensagensPendentes.length})</h4>`;
+-    if (!data.mensagensPendentes.length){
+-      html += `<div class="empty-state">Nenhuma mensagem pendente.</div>`;
+-    } else {
+-      data.mensagensPendentes.forEach(t => {
+-        const last = t.messages[t.messages.length-1];
+-        html += `<div class="thread-row" data-goto-thread="${esc(t.participantName)}">
+-          <div>
+-            <b>${esc(t.participantName)}</b>
+-            <div class="thread-preview">${esc(last.text.slice(0,70))}</div>
+-          </div>
+-          <span class="back-link">Responder →</span>
+-        </div>`;
+-      });
+-    }
++    if (!data.mensagensPendentes.length) html += `<div class="empty-state">Nenhuma mensagem pendente.</div>`;
++    else data.mensagensPendentes.forEach(t=>{const last=t.messages[t.messages.length-1]; html += `<div class="thread-row" data-goto-thread="${esc(t.participantName)}"><div><b>${esc(t.participantName)}</b><div class="thread-preview">${esc(last.text.slice(0,70))}</div></div><span class="back-link">Responder →</span></div>`;});
+     return html;
+   }
+ 
+   function renderAcompanhamento(){
+     const roster = state.roster || [];
+-    let html = `<div class="note">Esta visão reúne o progresso de todos os alunos que já entraram na plataforma, incluindo notas do quiz e da recuperação de cada módulo.</div>`;
+-    html += `<div class="section-title">Acompanhamento (${roster.length} aluno${roster.length===1?'':'s'})</div>`;
+-    if (roster.length === 0){
+-      html += `<div class="empty-state">Nenhum aluno entrou na plataforma ainda.<br>Compartilhe o link com a turma para começar a acompanhar o progresso.</div>`;
+-      return html;
+-    }
+-    html += `<table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Geral</th></tr>`;
+-    roster.sort((a,b)=> overallPct(b)-overallPct(a));
+-    roster.forEach(st => {
+-      html += `<tr><td>${esc(st.name)}</td>`;
+-      MODULES.forEach(m => {
+-        html += `<td class="num">${pctModule(st.modules[m.id], m)}%</td>`;
+-      });
+-      html += `<td class="num"><b>${overallPct(st)}%</b></td></tr>`;
++    let html = `<div class="note">Notas por módulo: valor em destaque = Nota Final liberada; quando ainda não liberada, é exibida a nota automática com indicação da situação.</div>`;
++    html += `<div class="section-title">Notas da Turma (${roster.length} aluno${roster.length===1?'':'s'})</div>`;
++    html += `<div class="toolbar"><button class="btn-outline" id="btn-print-report">Imprimir / Salvar PDF</button><button class="btn-brass" id="btn-export-grades">Exportar CSV</button></div>`;
++    if (!roster.length) return html + `<div class="empty-state">Nenhum aluno entrou na plataforma ainda.</div>`;
++    html += `<div class="table-scroll"><table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Média</th></tr>`;
++    roster.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(st=>{
++      let released=[]; html += `<tr><td>${esc(st.name)}</td>`;
++      MODULES.forEach(m=>{const mp=st.modules[m.id]; const c=correctionState(mp); const v=c.released?c.finalGrade:automaticModuleGrade(mp); if(c.released&&v!==null) released.push(Number(v)); html += `<td class="num"><b>${fmtGrade(v)}</b><div class="cell-status">${c.released?'Liberada':statusLabel(c.status)}</div></td>`;});
++      const avg=released.length?released.reduce((a,b)=>a+b,0)/released.length:null; html += `<td class="num"><b>${fmtGrade(avg)}</b></td></tr>`;
+     });
+-    html += `</table>`;
+-    html += `<div class="note" style="margin-top:14px">Legenda: percentual considera leitura do conteúdo, as 5 listas de exercícios concluídas e a realização do quiz de cada módulo. A recuperação é opcional e não altera esse percentual.</div>`;
+-    return html;
++    html += `</table></div>`; return html;
++  }
++
++  function csvEscape(v){ return '"'+String(v===null||v===undefined?'':v).replace(/"/g,'""')+'"'; }
++  function downloadText(filename,text,type){ const blob=new Blob([text],{type:type||'text/plain;charset=utf-8'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
++  function gradesCsv(){
++    const rows=[['Aluno',...MODULES.map(m=>'M'+m.num+' Nota Final'),...MODULES.map(m=>'M'+m.num+' Status'),'Média Final']];
++    (state.roster||[]).forEach(st=>{let vals=[], rel=[]; MODULES.forEach(m=>{const c=correctionState(st.modules[m.id]); vals.push(c.released?fmtGrade(c.finalGrade):''); if(c.released&&c.finalGrade!==null) rel.push(Number(c.finalGrade));}); const sts=MODULES.map(m=>statusLabel(correctionState(st.modules[m.id]).status)); rows.push([st.name,...vals,...sts,rel.length?fmtGrade(rel.reduce((a,b)=>a+b,0)/rel.length):'']);});
++    return '\ufeff'+rows.map(r=>r.map(csvEscape).join(';')).join('\n');
++  }
++  function renderRelatorios(){
++    return `<div class="section-title">Relatórios</div><div class="note">Relatório consolidado das notas e situações de correção. Use CSV para planilha ou impressão para gerar PDF.</div>` + renderAcompanhamento();
++  }
++  function renderBackup(){
++    return `<div class="section-title">Backup</div><div class="note">Gera um arquivo JSON com as turmas deste professor e os registros pedagógicos dos alunos que constam nessas turmas. O arquivo não altera nem apaga dados do Firestore.</div><div class="card-box"><h4>Backup pedagógico</h4><p class="desc">Inclui turmas, alunos cadastrados nas turmas e progresso/notas disponíveis.</p><button class="btn-brass" id="btn-export-backup">Gerar backup JSON</button></div>`;
+   }
+ 
+   function renderTurmasSection(){
+@@ -1571,20 +1644,12 @@ async function kvList(prefix){
+ 
+   function renderExerciseItem(it, idx){
+     let optsHtml = '';
+-    let answerText = '';
+     if (it.type === 'mc'){
+-      optsHtml = `<div class="opts">` + it.opts.map((o,i)=>`${String.fromCharCode(97+i)}) ${esc(o)}`).join('<br>') + `</div>`;
+-      answerText = `Alternativa correta: <b>${String.fromCharCode(97+it.correct)}) ${esc(it.opts[it.correct])}</b>`;
++      optsHtml = `<div class="exercise-choices">` + it.opts.map((o,i)=>`<label class="quiz-opt"><input type="radio" name="e${idx}" value="${i}" required> <span>${String.fromCharCode(97+i)}) ${esc(o)}</span></label>`).join('') + `</div>`;
+     } else {
+-      optsHtml = `<div class="opts">( &nbsp;) Verdadeiro &nbsp;&nbsp;&nbsp; ( &nbsp;) Falso</div>`;
+-      answerText = `Resposta correta: <b>${it.correct ? 'Verdadeiro' : 'Falso'}</b>`;
++      optsHtml = `<div class="exercise-choices"><label class="quiz-opt"><input type="radio" name="e${idx}" value="1" required> Verdadeiro</label><label class="quiz-opt"><input type="radio" name="e${idx}" value="0" required> Falso</label></div>`;
+     }
+-    if (it.note) answerText += ` — ${esc(it.note)}`;
+-    return `<div class="exercise">
+-      <div class="stmt"><span class="tag">${it.type==='mc'?'Múltipla escolha':'V / F'}</span><b>${idx+1}.</b> ${esc(it.q)}</div>
+-      ${optsHtml}
+-      <details class="answer"><summary>Ver resposta</summary><div class="resp">${answerText}</div></details>
+-    </div>`;
++    return `<div class="exercise"><div class="stmt"><span class="tag">${it.type==='mc'?'Múltipla escolha':'V / F'}</span><b>${idx+1}.</b> ${esc(it.q)}</div>${optsHtml}</div>`;
+   }
+ 
+   function renderModule(){
+@@ -1616,10 +1681,15 @@ async function kvList(prefix){
+       sub += `</div>`;
+       html += sub;
+       const list = m.exerciseLists[state.activeExerciseList];
+-      html += `<h4 style="margin-top:0">${esc(list.title)} <span style="font-weight:400;color:var(--ink-soft);font-size:13px">— 10 questões</span></h4>`;
+-      list.items.forEach((it,idx) => { html += renderExerciseItem(it, idx); });
+-      const done = mp.exerciseListsDone[state.activeExerciseList];
+-      html += `<button class="mark-btn" id="btn-list-done" ${done?'disabled':''}>${done ? '✓ Lista concluída' : 'Marcar esta lista como concluída'}</button>`;
++      const listScore = mp.exerciseScores[state.activeExerciseList];
++      html += `<h4 style="margin-top:0">${esc(list.title)} <span style="font-weight:400;color:var(--ink-soft);font-size:13px">— 10 questões · autocorreção</span></h4>`;
++      if (listScore !== null && listScore !== undefined){
++        html += `<div class="quiz-score">Lista concluída. Resultado: <b>${fmtGrade(listScore)} / 10,0</b>.</div>`;
++      } else {
++        html += `<form id="exercise-form">`;
++        list.items.forEach((it,idx) => { html += renderExerciseItem(it, idx); });
++        html += `<button class="mark-btn" type="submit">Corrigir lista</button></form>`;
++      }
+ 
+     } else if (state.activeTab === 'quiz'){
+       if (mp.quizScore !== null){
+@@ -1652,6 +1722,14 @@ async function kvList(prefix){
+         html += `<button type="submit" class="mark-btn">Corrigir recuperação</button></form>`;
+       }
+     }
+ 
