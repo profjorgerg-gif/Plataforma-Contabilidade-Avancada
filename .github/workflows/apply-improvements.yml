@@ -1,0 +1,48 @@
+name: Aplicar melhorias reutilizaveis
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-improvements.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Montar e aplicar pacote de melhorias
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/improvements.patch
+          for f in tools/improvements.patch.part01 tools/improvements.patch.part02 tools/improvements.patch.part03 tools/improvements.patch.part04 tools/improvements.patch.part05; do
+            cat "$f" >> /tmp/improvements.patch
+            printf '\n' >> /tmp/improvements.patch
+          done
+          git apply --check /tmp/improvements.patch
+          git apply /tmp/improvements.patch
+          node --check public/app.js
+
+      - name: Remover arquivos temporarios
+        shell: bash
+        run: |
+          rm -f tools/improvements.patch.part01 tools/improvements.patch.part02 tools/improvements.patch.part03 tools/improvements.patch.part04 tools/improvements.patch.part05
+          rm -f .github/workflows/apply-improvements.yml
+          rmdir tools 2>/dev/null || true
+
+      - name: Commit das melhorias
+        shell: bash
+        run: |
+          git config user.name "Projetos Pedagogicos"
+          git config user.email "profjorge.rg@gmail.com"
+          git add -A
+          git commit -m "Implanta fluxo de correção, notas e melhorias operacionais"
+          git push origin HEAD:main
