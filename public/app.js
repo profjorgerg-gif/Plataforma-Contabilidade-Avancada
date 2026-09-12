@@ -1141,7 +1141,14 @@ async function kvList(prefix){
   function correctionState(mp){
     if (!mp) return { status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[], firstSubmittedAt:null, late:false, latePenalty:0 };
     if(!mp.correction) mp.correction={ status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[], firstSubmittedAt:null, late:false, latePenalty:0 };
-    const c=mp.correction; if(!Array.isArray(c.history))c.history=[]; if(c.firstSubmittedAt===undefined)c.firstSubmittedAt=null; if(c.late===undefined)c.late=false; if(c.latePenalty===undefined)c.latePenalty=0; return c;
+    const c=mp.correction; if(!Array.isArray(c.history))c.history=[]; if(c.firstSubmittedAt===undefined)c.firstSubmittedAt=null; if(c.late===undefined)c.late=false; if(c.latePenalty===undefined)c.latePenalty=0;
+    // Compatibilidade: versões anteriores liberavam o módulo automaticamente.
+    // Preservamos liberações humanas legadas (aprovação) e as novas liberações pedagógicas;
+    // somente liberações automáticas voltam a aguardar decisão explícita do professor.
+    const hasHumanRelease=c.history.some(h=>h&&['aprovacao','liberacao_pedagogica'].includes(h.type));
+    const hasAutoRelease=c.history.some(h=>h&&h.type==='conclusao_automatica');
+    if(c.released && hasAutoRelease && !hasHumanRelease){ c.released=false; c.status='aguardando_liberacao'; c.reviewedAt=null; }
+    return c;
   }
   function statusLabel(status){
     return ({ liberado:'Em desenvolvimento', em_correcao:'Enviado para correção', ajustes:'Ajustes solicitados', aguardando_liberacao:'Aguardando liberação', corrigido:'Concluído / Liberado' })[status] || 'Em desenvolvimento';
