@@ -1,27 +1,10 @@
 from pathlib import Path
+import re
 
 p = Path('public/app.js')
 s = p.read_text(encoding='utf-8')
 
-old = """  function exerciseAverage10(mp){
-    if (!mp || !Array.isArray(mp.exerciseScores)) return null;
-    const vals = mp.exerciseScores.filter(v => v !== null && v !== undefined).map(v => Number(v));
-    if (!vals.length) return null;
-    return Math.round((vals.reduce((a,b)=>a+b,0)/vals.length)*10)/10;
-  }
-  function baseAutomaticModuleGrade(mp){
-    if (!mp) return null;
-    const ex = exerciseAverage10(mp);
-    const q = score10(mp.quizScore, mp.quizTotal || 10);
-    const r = score10(mp.recoveryScore, mp.recoveryTotal || 10);
-    const avaliacao = r === null ? q : (q === null ? r : Math.max(q,r));
-    if (ex === null && avaliacao === null) return null;
-    if (ex === null) return avaliacao;
-    if (avaliacao === null) return ex;
-    return Math.round(((ex + avaliacao)/2)*10)/10;
-  }
-"""
-new = """  function exerciseAverage10(mp){
+new_grade_block = """  function exerciseAverage10(mp){
     if (!mp || !Array.isArray(mp.exerciseScores)) return null;
     const recovery = score10(mp.recoveryScore, mp.recoveryTotal || 10);
     const vals = mp.exerciseScores
@@ -43,9 +26,10 @@ new = """  function exerciseAverage10(mp){
     return Math.round(((ex + q)/2)*10)/10;
   }
 """
-if old not in s:
+pattern = re.compile(r"  function exerciseAverage10\(mp\)\{.*?(?=  function effectiveModuleGrade\(mp\)\{)", re.S)
+if not pattern.search(s):
     raise SystemExit('Bloco de cálculo não encontrado')
-s = s.replace(old, new, 1)
+s = pattern.sub(new_grade_block, s, count=1)
 
 repls = [
     (
