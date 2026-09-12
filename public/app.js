@@ -1453,7 +1453,7 @@ async function kvList(prefix){
   // ---- Minhas Notas (aluno) ----
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
-    html += `<div class="note">As 5 listas aparecem individualmente. Quando a <b>nota da Recuperação</b> for superior à nota de uma lista, ela <b>substitui a nota inferior</b> para efeito da média e da nota automática. As notas substituídas aparecem com <b>*</b>. A nota automática do módulo considera 50% da média das 5 listas já ajustadas e 50% do melhor resultado entre Quiz e Recuperação. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
+    html += `<div class="note">As 5 listas aparecem individualmente. Quando a <b>nota da Recuperação</b> for superior à nota de uma lista, ela <b>substitui a nota inferior</b> para efeito da média e da nota automática. As notas substituídas aparecem com <b>*</b>. A nota automática do módulo considera 50% da média das 5 listas já ajustadas e 50% da nota do Quiz. A Recuperação não compõe a média diretamente; ela apenas substitui notas de listas que sejam inferiores à sua nota. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
     html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recup. (substit.)</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
     MODULES.forEach(m => {
       const mp = state.progress.modules[m.id]; const c=correctionState(mp);
