@@ -133,3 +133,13 @@ Para que o mesmo workflow consiga publicar `firestore.rules`, o Service Account 
 - exportação CSV, impressão/PDF e backup JSON;
 - suporte com protocolo e status;
 - visualização em desktop e celular.
+
+
+## Fluxo pedagógico automatizado
+
+- As 5 listas de exercícios, o Quiz e a Recuperação são autocorrigidos.
+- A Recuperação substitui individualmente todas as notas inferiores entre Ex. 1 a Ex. 5 e Quiz.
+- A Nota do Módulo é calculada automaticamente, sem envio ou aprovação manual pelo professor.
+- O módulo seguinte é liberado após a conclusão do conteúdo, das 5 listas e do Quiz do módulo anterior.
+- O painel do Professor apresenta Notas da Turma com detalhamento por atividade, Pendências operacionais e Relatório de Desempenho com resumo e detalhamento.
+- Exportação CSV e impressão/PDF utilizam o detalhamento das avaliações.

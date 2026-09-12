@@ -1198,7 +1198,7 @@ async function kvList(prefix){
   function toTs(v){ if(!v) return null; const ts=new Date(v).getTime(); return Number.isFinite(ts)?ts:null; }
   function moduleAccess(m){
     const idx=MODULES.findIndex(x=>x.id===m.id);
-    if(idx>0){ const prev=state.progress&&state.progress.modules[MODULES[idx-1].id]; const pc=correctionState(prev); if(!(pc.status==='corrigido'&&pc.released)) return {locked:true,reason:'Conclua e tenha a correção do módulo anterior liberada pelo professor.'}; }
+    if(idx>0){ const prevModule=MODULES[idx-1], prev=state.progress&&state.progress.modules[prevModule.id]; if(!moduleReadyForSubmission(prev,prevModule)) return {locked:true,reason:'Conclua o conteúdo, as 5 listas e o Quiz do módulo anterior para avançar.'}; }
     const s=scheduleForModule(m), deadline=toTs(s.deadline), original=toTs(s.originalDeadline)||deadline, now=Date.now();
     if(deadline && now>deadline && !s.allowLate) return {locked:true,reason:'Prazo encerrado. Aguarde a reabertura pelo professor.',deadline,late:true};
     return {locked:false,deadline,late:!!(original&&now>original),allowLate:!!s.allowLate};
@@ -1241,11 +1241,14 @@ async function kvList(prefix){
   function moduleReadyForSubmission(mp, m){
     return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.length >= m.exerciseLists.length && mp.exerciseScores.slice(0,m.exerciseLists.length).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
   }
+  function moduleCompleted(mp){
+    return !!(mp && mp.contentRead && Array.isArray(mp.exerciseScores) && mp.exerciseScores.slice(0,5).length === 5 && mp.exerciseScores.slice(0,5).every(v => v !== null && v !== undefined) && mp.quizScore !== null && mp.quizScore !== undefined);
+  }
   function fmtGrade(v){ return (v === null || v === undefined || Number.isNaN(Number(v))) ? '—' : Number(v).toFixed(1).replace('.',','); }
+  function moduleStatusLabel(mp){ return moduleCompleted(mp) ? 'Concluído' : 'Em andamento'; }
   function correctionBadge(mp){
-    const c = correctionState(mp);
-    const cls = c.status === 'corrigido' ? 'ok' : (c.status === 'ajustes' ? 'warn' : (c.status === 'em_correcao' ? 'info' : 'neutral'));
-    return `<span class="status-badge ${cls}">${esc(statusLabel(c.status))}</span>`;
+    const done = moduleCompleted(mp);
+    return `<span class="status-badge ${done?'ok':'neutral'}">${done?'Concluído':'Em andamento'}</span>`;
   }
 
   function pctModule(mp, m){
@@ -1313,7 +1316,7 @@ async function kvList(prefix){
     const role = state.user.role;
     let items;
     if (role === 'aluno') items = [['dashboard','Início'],['notas','Minhas Notas'],['manual','Manual do Aluno'],['suporte','Suporte']];
-    else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:correcoes','Correções Pendentes'],['professor:relatorios','Relatórios'],['professor:backup','Backup'],['professor:auditoria','Auditoria'],['professor:operacional','Manual Operacional'],['professor:checklist','Checklist'],['professor:guia','Guia Pedagógico'],['manual','Manual do Professor'],['suporte','Suporte']];
+    else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:acompanhamento','Notas da Turma'],['professor:correcoes','Pendências'],['professor:relatorios','Relatórios'],['professor:backup','Backup'],['professor:auditoria','Auditoria'],['professor:operacional','Manual Operacional'],['professor:checklist','Checklist'],['professor:guia','Guia Pedagógico'],['manual','Manual do Professor'],['suporte','Suporte']];
     else items = [['suporte','Suporte'],['usuarios','Usuários']];
 
     return `<div class="topnav">` + items.map(([key,label]) => {
@@ -1460,26 +1463,24 @@ async function kvList(prefix){
   // ---- Minhas Notas (aluno) ----
   function renderMinhasNotas(){
     let html = `<div class="section-title">Minhas notas</div>`;
-    html += `<div class="note">Os <b>5 exercícios e o Quiz valem 10,0 pontos cada</b> e têm o mesmo peso, formando uma média aritmética simples de 6 atividades avaliativas. A <b>Recuperação não é uma 7ª nota</b>: sua nota é comparada individualmente com cada exercício e com o Quiz e, quando for superior, <b>substitui a nota inferior</b> para compor a média. Na tela aparece a <b>nota original → nota considerada</b> sempre que houver substituição. A <b>Nota Final</b> só aparece como liberada após a revisão do professor.</div>`;
-    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recup. (substit.)</th><th class="num">Automática</th><th>Status</th><th class="num">Nota Final</th></tr>`;
+    html += `<div class="note">Os <b>5 exercícios e o Quiz valem 10,0 pontos cada</b> e têm o mesmo peso. A <b>Recuperação não é uma 7ª nota</b>: sua nota é comparada individualmente com cada exercício e com o Quiz e substitui toda nota inferior. Quando houver substituição, aparece <b>nota original → nota considerada</b>. A <b>Nota do Módulo</b> é calculada automaticamente pelo sistema.</div>`;
+    html += `<div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recuperação</th><th class="num">Nota do Módulo</th><th>Situação</th></tr>`;
     MODULES.forEach(m => {
       const mp = state.progress.modules[m.id]; const c=correctionState(mp);
       const quizTxt = score10(mp.quizScore,mp.quizTotal); const recTxt=score10(mp.recoveryScore,mp.recoveryTotal);
       const adjusted = effectiveAssessmentScores10(mp);
       const exerciseCells = Array.from({length:5}, (_,i) => {
         const original = Array.isArray(mp.exerciseScores) ? mp.exerciseScores[i] : null;
-        const effective = adjusted.exercises[i];
-        const replaced = !!(adjusted.replaced && adjusted.replaced[i]);
+        const effective = adjusted.exercises[i]; const replaced = !!(adjusted.replaced && adjusted.replaced[i]);
         if (effective === null || effective === undefined) return `<td class="num">—</td>`;
-        const title = replaced ? ` title="Nota original ${fmtGrade(Number(original))} substituída pela recuperação ${fmtGrade(recTxt)}"` : '';
         const shown = replaced ? `${fmtGrade(Number(original))} → <b>${fmtGrade(effective)}</b>` : fmtGrade(effective);
-        return `<td class="num"><span${title}>${shown}</span></td>`;
+        return `<td class="num">${shown}</td>`;
       }).join('');
       const quizReplaced = !!(adjusted.replaced && adjusted.replaced[5]);
-      const quizTitle = quizReplaced ? ` title="Nota original ${fmtGrade(quizTxt)} substituída pela recuperação ${fmtGrade(recTxt)}"` : '';
-      const quizCell = adjusted.quiz === null || adjusted.quiz === undefined ? '—' : `<span${quizTitle}>${quizReplaced ? `${fmtGrade(quizTxt)} → <b>${fmtGrade(adjusted.quiz)}</b>` : fmtGrade(adjusted.quiz)}</span>`;
-      html += `<tr><td>${esc(m.num+'. '+m.title)}</td>${exerciseCells}<td class="num">${quizCell}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(effectiveModuleGrade(mp))}</b></td><td>${correctionBadge(mp)}</td><td class="num"><b>${c.released?fmtGrade(c.finalGrade):'—'}</b></td></tr>`;
-      if (c.feedback) html += `<tr><td colspan="11"><div class="feedback-box"><b>Feedback do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
+      const quizCell = adjusted.quiz === null || adjusted.quiz === undefined ? '—' : (quizReplaced ? `${fmtGrade(quizTxt)} → <b>${fmtGrade(adjusted.quiz)}</b>` : fmtGrade(adjusted.quiz));
+      const grade = moduleReadyForSubmission(mp,m) ? effectiveModuleGrade(mp) : null;
+      html += `<tr><td>${esc(m.num+'. '+m.title)}</td>${exerciseCells}<td class="num">${quizCell}</td><td class="num">${fmtGrade(recTxt)}</td><td class="num"><b>${fmtGrade(grade)}</b></td><td>${moduleStatusLabel(mp)}</td></tr>`;
+      if (c.feedback) html += `<tr><td colspan="10"><div class="feedback-box"><b>Registro anterior do professor:</b> ${esc(c.feedback)}</div></td></tr>`;
     });
     html += `</table></div>`;
     return html;
@@ -1498,7 +1499,7 @@ async function kvList(prefix){
       <li><b>Recuperação</b> — avaliação paralela que não entra como 7ª nota. Sua nota é comparada com cada um dos 5 exercícios e com o Quiz; sempre que for superior, substitui aquela nota inferior para compor a média das 6 atividades.</li>
     </ul>
     <h4>Minhas Notas</h4>
-    <p>No menu superior, "Minhas Notas" mostra as notas dos 5 exercícios, Quiz, Recuperação, média automática, situação da correção e Nota Final. Os 5 exercícios e o Quiz possuem o mesmo peso. A Recuperação substitui individualmente todas as notas dessas 6 atividades que forem inferiores à nota obtida na Recuperação. Quando houver substituição, a tela apresenta a nota original → nota considerada, inclusive no Quiz.</p><h4>Fluxo de correção por módulo</h4><p>Depois de concluir conteúdo, 5 listas e quiz, use <b>Enviar módulo para correção</b>. O professor poderá aprovar e liberar a nota ou devolver para ajustes com feedback. Em caso de ajustes, as atividades avaliativas do módulo ficam disponíveis novamente para novo envio.</p>
+    <p>No menu superior, "Minhas Notas" mostra as notas dos 5 exercícios, Quiz, Recuperação, Nota do Módulo e situação. Os 5 exercícios e o Quiz possuem o mesmo peso. A Recuperação substitui individualmente todas as notas dessas 6 atividades que forem inferiores à nota obtida na Recuperação. Quando houver substituição, a tela apresenta a nota original → nota considerada, inclusive no Quiz.</p><h4>Conclusão do módulo</h4><p>Depois de concluir o conteúdo, as 5 listas e o Quiz, o sistema calcula automaticamente a Nota do Módulo e libera o módulo seguinte. Não há envio para correção manual. A Recuperação pode melhorar a nota ao substituir resultados inferiores.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" você pode abrir chamados ao professor ou à administração. Cada chamado recebe protocolo, histórico, status administrativo, prazo de resposta e período de reabertura. Chamados e listas podem ser impressos ou salvos em PDF.</p>
   `;
@@ -1510,7 +1511,7 @@ async function kvList(prefix){
       <li>Adicionando um aluno por vez, informando nome e matrícula.</li>
     </ul>
     <h4>Notas da Turma</h4>
-    <p>O menu "Notas da Turma" mostra, por aluno e módulo, a média automática, a Nota Final liberada e a situação da correção, com exportação em CSV e impressão/PDF. A média automática é a média aritmética simples dos 5 exercícios e do Quiz, todos com o mesmo peso. A Recuperação substitui somente a menor nota entre essas 6 atividades quando sua nota for superior.</p><h4>Correções Pendentes</h4><p>Defina os prazos dos módulos dentro de cada turma. O vencimento bloqueia automaticamente o módulo; a entrega tardia autorizada recebe desconto de 2,0 pontos. Os módulos enviados pelos alunos aparecem em "Correções Pendentes". A nota automática já vem calculada; o professor pode manter ou ajustar a Nota Final, registrar feedback, aprovar/liberar ou devolver o módulo para ajustes.</p><h4>Relatórios e Backup</h4><p>Os menus "Relatórios" e "Backup" permitem exportar acompanhamento em CSV, imprimir/salvar em PDF e gerar backup JSON das turmas e dados pedagógicos vinculados.</p>
+    <p>O menu "Notas da Turma" mostra a Nota do Módulo e permite abrir o detalhamento de cada aluno, com Ex. 1 a Ex. 5, Quiz, Recuperação e identificação de toda substituição no formato nota original → nota considerada. As notas são calculadas automaticamente.</p><h4>Pendências</h4><p>A área "Pendências" reúne apenas situações que exigem atuação do professor, como cadastros incompletos e mensagens aguardando resposta. Exercícios, Quiz, Recuperação e notas não geram pendência de correção.</p><h4>Relatórios e Backup</h4><p>"Relatórios" apresenta o Relatório de Desempenho com resumo da turma, progresso e detalhamento por atividade, com CSV e impressão/PDF. "Backup" gera arquivo JSON das turmas e dados pedagógicos vinculados.</p>
     <h4>Suporte</h4>
     <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, com chamados identificados por protocolo e status, onde você pode responder, encerrar ou reabrir cada atendimento; e <b>Administração</b>, seu canal direto com a administração da plataforma.</p>
   `;
@@ -1641,40 +1642,38 @@ async function kvList(prefix){
 
   function renderCorrecoesPendentes(){
     const data = state.correcoesPendentes || { incompletos: [], mensagensPendentes: [], modulosPendentes: [] };
-    let html = `<div class="section-title">Correções pendentes</div>`;
-    html += `<div class="note">Módulos enviados pelos alunos para revisão, além de inconsistências cadastrais e mensagens aguardando resposta.</div>`;
-    html += `<h4 style="margin:18px 0 8px">Módulos aguardando revisão (${(data.modulosPendentes||[]).length})</h4>`;
-    if (!(data.modulosPendentes||[]).length) html += `<div class="empty-state">Nenhum módulo aguardando correção.</div>`;
-    else (data.modulosPendentes||[]).forEach((it,idx)=>{
-      const auto=effectiveModuleGrade(it.mp); const c=it.correction;
-      html += `<div class="review-card"><div class="review-head"><div><b>${esc(it.student.name)}</b><div class="thread-preview">M${it.module.num} — ${esc(it.module.title)}</div></div>${correctionBadge(it.mp)}</div>
-        <div class="review-grid"><div><span>Média dos 5 exercícios</span><b>${fmtGrade(exerciseAverage10(it.mp))}</b></div><div><span>Quiz</span><b>${fmtGrade(score10(it.mp.quizScore,it.mp.quizTotal))}</b></div><div><span>Recuperação</span><b>${fmtGrade(score10(it.mp.recoveryScore,it.mp.recoveryTotal))}</b></div><div><span>Média automática das 6 atividades</span><b>${fmtGrade(auto)}</b></div></div>
-        <label>Nota Final (0,0 a 10,0)</label><input type="number" min="0" max="10" step="0.1" class="grade-input" data-grade-input="${idx}" value="${auto===null?'':auto}">
-        <label>Feedback ao aluno</label><textarea class="review-feedback" data-feedback-input="${idx}" placeholder="Feedback opcional">${esc(c.feedback||'')}</textarea>
-        <div class="review-actions"><button class="btn-outline" data-return-module="${idx}">Devolver para ajustes</button><button class="btn-brass" data-approve-module="${idx}">Aprovar e liberar nota</button></div>
-      </div>`;
-    });
-
-    html += `<h4 style="margin:26px 0 8px">Cadastros de alunos a corrigir (${data.incompletos.length})</h4>`;
-    if (!data.incompletos.length) html += `<div class="empty-state">Nenhum cadastro pendente de correção.</div>`;
-    else { html += `<table class="roster"><tr><th>Turma</th><th>Nome</th><th>Matrícula</th><th></th></tr>`; data.incompletos.forEach(it=>{html += `<tr><td>${esc(it.turmaName)}</td><td>${esc(it.nome||'—')}</td><td>${esc(it.matricula||'—')}</td><td><span class="link-btn" data-fix-turma="${esc(it.turmaId)}" style="color:var(--brass)">corrigir →</span></td></tr>`}); html += `</table>`; }
-    html += `<h4 style="margin:26px 0 8px">Mensagens de alunos aguardando resposta (${data.mensagensPendentes.length})</h4>`;
+    let html = `<div class="section-title">Pendências</div>`;
+    html += `<div class="note">Esta área reúne apenas situações que necessitam da atuação do professor. Exercícios, Quiz, Recuperação e Nota do Módulo são processados automaticamente pelo sistema.</div>`;
+    html += `<h4 style="margin:18px 0 8px">Cadastros a regularizar (${data.incompletos.length})</h4>`;
+    if (!data.incompletos.length) html += `<div class="empty-state">Nenhum cadastro pendente no momento.</div>`;
+    else data.incompletos.forEach(it=>{ html += `<div class="thread-row" data-fix-turma="${esc(it.turmaId)}"><div><b>${esc(it.nome||'(nome não identificado)')}</b><div class="thread-preview">Turma: ${esc(it.turmaNome)} · ${!it.nome?'Nome ausente · ':''}${!it.matricula?'Matrícula ausente':''}</div></div><span class="back-link">Regularizar →</span></div>`; });
+    html += `<h4 style="margin:24px 0 8px">Mensagens aguardando resposta (${data.mensagensPendentes.length})</h4>`;
     if (!data.mensagensPendentes.length) html += `<div class="empty-state">Nenhuma mensagem pendente.</div>`;
     else data.mensagensPendentes.forEach(t=>{const last=t.messages[t.messages.length-1]; html += `<div class="thread-row" data-goto-thread="${esc(t.participantName)}"><div><b>${esc(t.participantName)}</b><div class="thread-preview">${esc(last.text.slice(0,70))}</div></div><span class="back-link">Responder →</span></div>`;});
     return html;
   }
 
   function renderAcompanhamento(){
-    const roster = professorRoster(state.roster || []);
-    let html = `<div class="note">Notas por módulo: valor em destaque = Nota Final liberada; quando ainda não liberada, é exibida a nota automática com indicação da situação.</div>`;
+    const roster = professorRoster(state.roster || []).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    let html = `<div class="note">As notas são calculadas automaticamente pelo sistema. Clique em <b>Ver detalhes</b> para visualizar as notas originais, substituições pela Recuperação e a Nota do Módulo.</div>`;
     html += `<div class="section-title">Notas da Turma (${roster.length} aluno${roster.length===1?'':'s'})</div>`;
     html += `<div class="toolbar"><button class="btn-outline" id="btn-print-report">Imprimir / Salvar PDF</button><button class="btn-brass" id="btn-export-grades">Exportar CSV</button></div>`;
     if (!roster.length) return html + `<div class="empty-state">Nenhum aluno entrou na plataforma ainda.</div>`;
-    html += `<div class="table-scroll"><table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Média</th></tr>`;
-    roster.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(st=>{
-      let released=[]; html += `<tr><td>${esc(st.name)}</td>`;
-      MODULES.forEach(m=>{const mp=st.modules[m.id]; const c=correctionState(mp); const v=c.released?c.finalGrade:effectiveModuleGrade(mp); if(c.released&&v!==null) released.push(Number(v)); html += `<td class="num"><b>${fmtGrade(v)}</b><div class="cell-status">${c.released?'Liberada':statusLabel(c.status)}</div></td>`;});
-      const avg=released.length?released.reduce((a,b)=>a+b,0)/released.length:null; html += `<td class="num"><b>${fmtGrade(avg)}</b></td></tr>`;
+    html += `<div class="table-scroll"><table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Média</th><th class="num">Ação</th></tr>`;
+    roster.forEach((st,idx)=>{
+      const grades=[]; html += `<tr><td><b>${esc(st.name)}</b></td>`;
+      MODULES.forEach(m=>{const mp=st.modules[m.id]; const v=moduleReadyForSubmission(mp,m)?effectiveModuleGrade(mp):null; if(v!==null) grades.push(Number(v)); html += `<td class="num"><b>${fmtGrade(v)}</b><div class="cell-status">${moduleStatusLabel(mp)}</div></td>`;});
+      const avg=grades.length?grades.reduce((a,b)=>a+b,0)/grades.length:null;
+      html += `<td class="num"><b>${fmtGrade(avg)}</b></td><td class="num"><button class="btn-brass" data-toggle-student-details="${idx}">Ver detalhes</button></td></tr>`;
+      html += `<tr data-student-detail="${idx}" style="display:none"><td colspan="8"><div class="card-box"><h4>${esc(st.name)} — Detalhamento das avaliações</h4><div class="table-scroll"><table class="roster"><tr><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recuperação</th><th class="num">Nota do Módulo</th><th>Situação</th></tr>`;
+      MODULES.forEach(m=>{
+        const mp=st.modules[m.id], adjusted=effectiveAssessmentScores10(mp), rec=score10(mp.recoveryScore,mp.recoveryTotal), quizOrig=score10(mp.quizScore,mp.quizTotal);
+        const exCells=Array.from({length:5},(_,i)=>{const orig=Array.isArray(mp.exerciseScores)?mp.exerciseScores[i]:null, eff=adjusted.exercises[i], rep=!!(adjusted.replaced&&adjusted.replaced[i]); if(eff===null||eff===undefined)return '<td class="num">—</td>'; return `<td class="num">${rep?`${fmtGrade(orig)} → <b>${fmtGrade(eff)}</b>`:fmtGrade(eff)}</td>`;}).join('');
+        const qRep=!!(adjusted.replaced&&adjusted.replaced[5]); const qCell=adjusted.quiz===null||adjusted.quiz===undefined?'—':(qRep?`${fmtGrade(quizOrig)} → <b>${fmtGrade(adjusted.quiz)}</b>`:fmtGrade(adjusted.quiz));
+        const grade=moduleReadyForSubmission(mp,m)?effectiveModuleGrade(mp):null;
+        html += `<tr><td><b>M${m.num}</b></td>${exCells}<td class="num">${qCell}</td><td class="num">${fmtGrade(rec)}</td><td class="num"><b>${fmtGrade(grade)}</b></td><td>${moduleStatusLabel(mp)}</td></tr>`;
+      });
+      html += `</table></div><div class="note" style="margin-top:12px"><b>Legenda:</b> quando a Recuperação substitui uma nota inferior, é exibido <b>original → considerada</b>. A Recuperação não é uma 7ª nota.</div></div></td></tr>`;
     });
     html += `</table></div>`; return html;
   }
@@ -1682,34 +1681,34 @@ async function kvList(prefix){
   function csvEscape(v){ return '"'+String(v===null||v===undefined?'':v).replace(/"/g,'""')+'"'; }
   function downloadText(filename,text,type){ const blob=new Blob([text],{type:type||'text/plain;charset=utf-8'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u); }
   function gradesCsv(){
-    const rows=[['Aluno',...MODULES.map(m=>'M'+m.num+' Nota Final'),...MODULES.map(m=>'M'+m.num+' Status'),'Média Final']];
-    professorRoster(state.roster||[]).forEach(st=>{let vals=[], rel=[]; MODULES.forEach(m=>{const c=correctionState(st.modules[m.id]); vals.push(c.released?fmtGrade(c.finalGrade):''); if(c.released&&c.finalGrade!==null) rel.push(Number(c.finalGrade));}); const sts=MODULES.map(m=>statusLabel(correctionState(st.modules[m.id]).status)); rows.push([st.name,...vals,...sts,rel.length?fmtGrade(rel.reduce((a,b)=>a+b,0)/rel.length):'']);});
+    const rows=[['Aluno','Módulo','Ex1 Original','Ex1 Considerada','Ex2 Original','Ex2 Considerada','Ex3 Original','Ex3 Considerada','Ex4 Original','Ex4 Considerada','Ex5 Original','Ex5 Considerada','Quiz Original','Quiz Considerado','Recuperação','Nota do Módulo','Situação','Progresso Geral']];
+    professorRoster(state.roster||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(st=>{
+      MODULES.forEach(m=>{
+        const mp=st.modules[m.id], a=effectiveAssessmentScores10(mp), ex=[];
+        for(let i=0;i<5;i++){const orig=Array.isArray(mp.exerciseScores)?mp.exerciseScores[i]:null; ex.push(fmtGrade(orig),fmtGrade(a.exercises[i]));}
+        const qOrig=score10(mp.quizScore,mp.quizTotal), rec=score10(mp.recoveryScore,mp.recoveryTotal), grade=moduleReadyForSubmission(mp,m)?effectiveModuleGrade(mp):null;
+        rows.push([st.name,'M'+m.num,...ex,fmtGrade(qOrig),fmtGrade(a.quiz),fmtGrade(rec),fmtGrade(grade),moduleStatusLabel(mp),overallPct(st)+'%']);
+      });
+    });
     return '\ufeff'+rows.map(r=>r.map(csvEscape).join(';')).join('\n');
   }
   function renderRelatorios(){
-    return `<div class="section-title">Relatórios</div><div class="note">Relatório consolidado das notas e situações de correção. Use CSV para planilha ou impressão para gerar PDF.</div>` + renderAcompanhamento();
+    const roster=professorRoster(state.roster||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    let html=`<div class="section-title">Relatório de Desempenho</div><div class="note">Visão geral e detalhada das notas e do progresso da turma. As notas são calculadas automaticamente e as substituições pela Recuperação permanecem identificadas.</div><div class="toolbar"><button class="btn-outline" id="btn-print-report">Imprimir / Salvar PDF</button><button class="btn-brass" id="btn-export-grades">Exportar CSV</button></div>`;
+    if(!roster.length) return html+`<div class="empty-state">Nenhum aluno entrou na plataforma ainda.</div>`;
+    html+=`<h4 style="margin:18px 0 8px">Resumo da Turma</h4><div class="table-scroll"><table class="roster"><tr><th>Aluno</th>${MODULES.map(m=>`<th class="num">M${m.num}</th>`).join('')}<th class="num">Média Geral</th><th class="num">Progresso</th></tr>`;
+    roster.forEach(st=>{const vals=[]; html+=`<tr><td><b>${esc(st.name)}</b></td>`; MODULES.forEach(m=>{const mp=st.modules[m.id],v=moduleReadyForSubmission(mp,m)?effectiveModuleGrade(mp):null;if(v!==null)vals.push(Number(v));html+=`<td class="num">${fmtGrade(v)}</td>`;}); const avg=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null; html+=`<td class="num"><b>${fmtGrade(avg)}</b></td><td class="num">${overallPct(st)}%</td></tr>`;});
+    html+=`</table></div><h4 style="margin:24px 0 8px">Detalhamento por Atividade</h4><div class="table-scroll"><table class="roster"><tr><th>Aluno</th><th>Módulo</th><th class="num">Ex. 1</th><th class="num">Ex. 2</th><th class="num">Ex. 3</th><th class="num">Ex. 4</th><th class="num">Ex. 5</th><th class="num">Quiz</th><th class="num">Recuperação</th><th class="num">Nota do Módulo</th><th>Situação</th></tr>`;
+    roster.forEach(st=>MODULES.forEach(m=>{const mp=st.modules[m.id],a=effectiveAssessmentScores10(mp),rec=score10(mp.recoveryScore,mp.recoveryTotal),qOrig=score10(mp.quizScore,mp.quizTotal),grade=moduleReadyForSubmission(mp,m)?effectiveModuleGrade(mp):null; const fmt=(orig,eff,rep)=>eff===null||eff===undefined?'—':(rep?`${fmtGrade(orig)} → <b>${fmtGrade(eff)}</b>`:fmtGrade(eff)); html+=`<tr><td>${esc(st.name)}</td><td><b>M${m.num}</b></td>${Array.from({length:5},(_,i)=>`<td class="num">${fmt(Array.isArray(mp.exerciseScores)?mp.exerciseScores[i]:null,a.exercises[i],!!(a.replaced&&a.replaced[i]))}</td>`).join('')}<td class="num">${fmt(qOrig,a.quiz,!!(a.replaced&&a.replaced[5]))}</td><td class="num">${fmtGrade(rec)}</td><td class="num"><b>${fmtGrade(grade)}</b></td><td>${moduleStatusLabel(mp)}</td></tr>`;}));
+    html+=`</table></div>`; return html;
   }
   function renderBackup(){
     return `<div class="section-title">Backup</div><div class="note">Gera um arquivo JSON com as turmas deste professor e os registros pedagógicos dos alunos que constam nessas turmas. O arquivo não altera nem apaga dados do Firestore.</div><div class="card-box"><h4>Backup pedagógico</h4><p class="desc">Inclui turmas, alunos cadastrados nas turmas e progresso/notas disponíveis.</p><button class="btn-brass" id="btn-export-backup">Gerar backup JSON</button></div>`;
   }
 
   function docShell(title,body){ return `<div class="section-title">${esc(title)}</div><div class="toolbar"><button class="btn-outline" id="btn-print-doc">Imprimir / Salvar PDF</button></div><div class="panel doc-panel">${body}</div>`; }
-  function renderManualOperacional(){ return docShell('Manual Operacional',`<h4>1. Acesso e perfis</h4><p>O acesso é realizado exclusivamente com conta Google. Alunos entram como Aluno(a); Professores novos aguardam aprovação do Usuário Mestre.</p><h4>2. Turmas e alunos</h4><p>Crie a turma, cadastre alunos individualmente ou importe PDF, confira nome e matrícula e salve os prazos dos cinco módulos.</p><h4>3. Prazos e módulos</h4><p>O Módulo 1 inicia liberado. Os demais são liberados sequencialmente após a correção e liberação da Nota Final do módulo anterior. Após o prazo, o módulo bloqueia; o professor pode permitir entrega em atraso, com desconto automático de 2,0 pontos na primeira entrega fora do prazo original.</p><h4>4. Correção e notas</h4><p>O aluno conclui conteúdo, cinco listas e quiz, envia o módulo e aguarda revisão. O professor aprova/libera ou devolve para ajustes.</p><h4>5. Suporte, relatórios e backup</h4><p>Chamados têm protocolo, status, prazo de resposta, reabertura e impressão/PDF. Relatórios, auditoria e backup ficam disponíveis no painel do Professor.</p>`); }
-  function renderChecklistStatus(){
-    const turmas=state.turmas||[], deadlines=turmas.reduce((n,t)=>n+MODULES.filter(m=>t.moduleSettings&&t.moduleSettings[m.id]&&t.moduleSettings[m.id].deadline).length,0), cad=turmas.reduce((n,t)=>n+(t.students||[]).filter(s=>s.nome&&s.matricula).length,0), total=turmas.reduce((n,t)=>n+(t.students||[]).length,0), pending=(state.correcoesPendentes&&state.correcoesPendentes.modulosPendentes||[]).length;
-    const items=[['Turmas cadastradas',turmas.length>0,`${turmas.length} turma(s)`],['Alunos com nome e matrícula',total>0&&cad===total,`${cad}/${total}`],['Prazos configurados',deadlines===turmas.length*MODULES.length&&turmas.length>0,`${deadlines}/${turmas.length*MODULES.length||0}`],['Correções pendentes revisadas',pending===0,`${pending} pendente(s)`],['Auditoria de acesso ativa',true,'Login e logout registrados'],['Suporte operacional',true,'Status, prazos, reabertura e PDF disponíveis'],['Backup pedagógico disponível',true,'Exportação JSON ativa']];
-    return docShell('Checklist de Status',`<p>Verificação operacional do ambiente do Professor.</p><div class="checklist-grid">${items.map(([l,ok,d])=>`<div class="check-item ${ok?'ok':'warn'}"><b>${ok?'✓':'!'} ${esc(l)}</b><span>${esc(d)}</span></div>`).join('')}</div>`);
-  }
-  function renderGuiaPedagogico(){ return docShell('Guia Pedagógico do Professor',`<h4>Organização didática</h4><p>A disciplina está estruturada em cinco módulos progressivos. O estudante avança somente após concluir e ter corrigido o módulo anterior, favorecendo acompanhamento formativo e domínio cumulativo.</p><h4>Estrutura de cada módulo</h4><ul><li>Conteúdo teórico e exemplos;</li><li>5 listas autocorrigidas de 10 questões;</li><li>Quiz avaliativo;</li><li>Recuperação paralela;</li><li>Envio para revisão do Professor e Nota Final.</li></ul><h4>Avaliação</h4><p>A nota automática considera 50% da média das listas e 50% do melhor resultado entre Quiz e Recuperação. A Nota Final é liberada pelo Professor. Entrega após o prazo original, quando autorizada, recebe desconto automático de 2,0 pontos.</p><h4>Intervenção pedagógica</h4><p>Use Correções Pendentes para feedback individual, Auditoria para rastreabilidade, Relatórios para acompanhamento e Suporte para dúvidas e ocorrências. A devolução para ajustes mantém histórico e permite nova tentativa.</p><h4>Boas práticas</h4><p>Defina os prazos antes da abertura da turma, acompanhe módulos pendentes regularmente, registre feedback objetivo e gere backup periódico.</p>`); }
-
-  function renderTurmasSection(){
-    if (state.activeTurmaId){
-      const turma = state.turmas.find(t => t.id === state.activeTurmaId);
-      if (!turma) { state.activeTurmaId = null; return renderTurmaList(); }
-      return renderTurmaDetail(turma);
-    }
-    return renderTurmaList();
-  }
+  function renderManualOperacional(){ return docShell('Manual Operacional',`<h4>1. Acesso e perfis</h4><p>O acesso é realizado exclusivamente com conta Google. Alunos entram como Aluno(a); Professores novos aguardam aprovação do Usuário Mestre.</p><h4>2. Turmas e alunos</h4><p>Crie a turma, cadastre alunos individualmente ou importe PDF, confira nome e matrícula e salve os prazos dos cinco módulos.</p><h4>3. Prazos e módulos</h4><p>O Módulo 1 inicia liberado. Os demais são liberados automaticamente após a conclusão do conteúdo, das 5 listas e do Quiz do módulo anterior. Após o prazo, o módulo bloqueia; quando o professor autoriza entrega em atraso, aplica-se desconto automático de 2,0 pontos na primeira conclusão fora do prazo original.</p><h4>4. Avaliação e notas</h4><p>Listas, Quiz e Recuperação são autocorrigidos. A Recuperação substitui todas as notas inferiores entre as 6 atividades avaliativas. A Nota do Módulo é calculada automaticamente, sem etapa de aprovação manual.</p><h4>5. Pendências, relatórios e suporte</h4><p>Pendências reúne apenas cadastros a regularizar e mensagens aguardando resposta. Relatórios apresentam resumo e detalhamento por atividade; Auditoria, Backup e Suporte permanecem disponíveis no painel do Professor.</p>`); }
+  function renderGuiaPedagogico(){ return docShell('Guia Pedagógico do Professor',`<h4>Organização didática</h4><p>A disciplina está estruturada em cinco módulos progressivos. O estudante avança automaticamente após concluir o conteúdo, as cinco listas e o Quiz do módulo anterior.</p><h4>Estrutura de cada módulo</h4><ul><li>Conteúdo teórico e exemplos;</li><li>5 listas autocorrigidas de 10 questões;</li><li>Quiz avaliativo autocorrigido;</li><li>Recuperação paralela autocorrigida;</li><li>Nota do Módulo calculada automaticamente.</li></ul><h4>Avaliação</h4><p>Os 5 exercícios e o Quiz têm o mesmo peso. A Recuperação não é uma 7ª nota: substitui individualmente todas as notas inferiores entre essas 6 atividades. Entrega após o prazo original, quando autorizada, recebe desconto automático de 2,0 pontos.</p><h4>Intervenção pedagógica</h4><p>Use Notas da Turma e Relatórios para acompanhar o desempenho detalhado; Pendências para cadastros e mensagens que exigem atuação; Auditoria para rastreabilidade e Suporte para dúvidas e ocorrências.</p><h4>Boas práticas</h4><p>Defina os prazos antes da abertura da turma, acompanhe o progresso e as notas por atividade, trate as pendências operacionais e gere backup periódico.</p>`); }
 
   function renderTurmaList(){
     let html = `<div class="note">Crie turmas e monte a lista de alunos (nome e matrícula) enviando um PDF ou adicionando um a um.</div>`;
@@ -1909,7 +1908,7 @@ async function kvList(prefix){
       }
 
     } else if (state.activeTab === 'recuperacao'){
-      html += `<div class="recovery-intro">A recuperação é uma avaliação paralela e não é uma 7ª nota da média. Os 5 exercícios e o Quiz valem 10,0 pontos cada e têm o mesmo peso. Se a nota da Recuperação for maior que a menor nota entre essas 6 atividades, ela substitui somente essa menor nota — inclusive se a menor nota for a do Quiz.</div>`;
+      html += `<div class="recovery-intro">A recuperação é uma avaliação paralela e não é uma 7ª nota da média. Os 5 exercícios e o Quiz valem 10,0 pontos cada e têm o mesmo peso. A nota da Recuperação é comparada individualmente com as 6 atividades e substitui todas as notas inferiores, inclusive a do Quiz.</div>`;
       if (mp.recoveryScore !== null){
         html += `<div class="quiz-score">Recuperação já realizada. Resultado: <b>${mp.recoveryScore} de ${mp.recoveryTotal}</b> acertos.</div>`;
       } else {
@@ -1925,12 +1924,10 @@ async function kvList(prefix){
       }
     }
     const corr = correctionState(mp);
-    html += `<div class="module-correction"><h4>Fluxo de correção do módulo</h4><div style="margin-bottom:8px">${correctionBadge(mp)}</div>`;
-    if (corr.feedback) html += `<div class="feedback-box"><b>Feedback do professor:</b> ${esc(corr.feedback)}</div>`;
-    if (corr.status === 'corrigido' && corr.released) html += `<div class="quiz-score">Nota Final liberada: <b>${fmtGrade(corr.finalGrade)} / 10,0</b></div>`;
-    else if (corr.status === 'em_correcao') html += `<p class="thread-preview">Enviado em ${corr.submittedAt?new Date(corr.submittedAt).toLocaleString('pt-BR'):'—'}. Aguarde a revisão do professor.</p>`;
-    else if (moduleReadyForSubmission(mp,m)) html += `<p class="thread-preview">Nota automática atual: <b>${fmtGrade(effectiveModuleGrade(mp))}</b>. Envie o módulo para o professor revisar e liberar a Nota Final.</p><button class="btn-brass" id="btn-submit-module">Enviar módulo para correção</button>`;
-    else html += `<p class="thread-preview">Conclua o conteúdo, as 5 listas autocorrigidas e o quiz para poder enviar o módulo à correção.</p>`;
+    html += `<div class="module-correction"><h4>Situação do módulo</h4><div style="margin-bottom:8px">${correctionBadge(mp)}</div>`;
+    if (corr.feedback) html += `<div class="feedback-box"><b>Registro anterior do professor:</b> ${esc(corr.feedback)}</div>`;
+    if (moduleReadyForSubmission(mp,m)) html += `<div class="quiz-score">Módulo concluído. Nota do Módulo: <b>${fmtGrade(effectiveModuleGrade(mp))} / 10,0</b></div><p class="thread-preview">O próximo módulo é liberado automaticamente. A Recuperação, quando realizada, atualiza a nota se substituir resultados inferiores.</p>`;
+    else html += `<p class="thread-preview">Conclua o conteúdo, as 5 listas autocorrigidas e o Quiz. A nota e a liberação do próximo módulo serão processadas automaticamente.</p>`;
     html += `</div>`;
     html += `</div>`;
     return html;
@@ -1995,8 +1992,6 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
   render();
 });
 
-    const btnSubmitModule=document.getElementById('btn-submit-module');
-    if(btnSubmitModule) btnSubmitModule.addEventListener('click',async()=>{const m=MODULES.find(x=>x.id===state.activeModuleId),mp=state.progress.modules[m.id],c=correctionState(mp),access=moduleAccess(m); if(access.locked){alert(access.reason); state.view='dashboard'; render(); return;} const now=Date.now(); if(!c.firstSubmittedAt){c.firstSubmittedAt=now; c.latePenalty=access.late?2:0; c.late=!!access.late;} c.status='em_correcao'; c.submittedAt=now; c.feedback=''; c.released=false; c.history.push({type:'envio',ts:now,autoGrade:effectiveModuleGrade(mp),late:!!c.late,latePenalty:Number(c.latePenalty||0)}); mp.correction=c; await saveProgress(state.progress); await logAudit('modulo_enviado_correcao',`${state.user.name} enviou o módulo "${m.title}" para correção${c.latePenalty?' com desconto de 2,0 pontos por atraso':''}.`); render();});
 
     const quizForm = document.getElementById('quiz-form');
     if (quizForm) quizForm.addEventListener('submit', async (e) => {
@@ -2014,8 +2009,17 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
         if (ok) score++;
         results.push({ok, explain:q.explain, correctText:q.opts[q.correct]});
       });
-      if (kind === 'quiz') state.progress.modules[state.activeModuleId].quizScore = score;
-      else state.progress.modules[state.activeModuleId].recoveryScore = score;
+      const activeMp = state.progress.modules[state.activeModuleId];
+      if (kind === 'quiz') activeMp.quizScore = score;
+      else activeMp.recoveryScore = score;
+      if (moduleReadyForSubmission(activeMp,m)){
+        const c = correctionState(activeMp); const now = Date.now();
+        if (kind === 'quiz' && !c.firstSubmittedAt){
+          const access = moduleAccess(m); c.firstSubmittedAt = now; c.late = !!access.late; c.latePenalty = access.late ? 2 : 0;
+          c.history.push({type:'conclusao_automatica',ts:now,late:c.late,latePenalty:c.latePenalty});
+        }
+        c.status='corrigido'; c.reviewedAt=now; c.released=true; c.finalGrade=effectiveModuleGrade(activeMp); activeMp.correction=c;
+      }
       await saveProgress(state.progress);
       await logAudit(
         kind === 'quiz' ? 'quiz_concluido' : 'recuperacao_concluida',
@@ -2266,6 +2270,7 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
       const idx=parseInt(btn.getAttribute('data-return-module'),10), it=(state.correcoesPendentes.modulosPendentes||[])[idx]; if(!it)return; const fi=document.querySelector(`[data-feedback-input="${idx}"]`); const feedback=(fi&&fi.value||'').trim()||'Revise o módulo e realize novamente as atividades avaliativas indicadas.';
       const c=correctionState(it.mp); c.status='ajustes'; c.reviewedAt=Date.now(); c.feedback=feedback; c.released=false; c.finalGrade=null; c.history.push({type:'devolucao',ts:Date.now(),feedback}); it.mp.exerciseScores=new Array(it.module.exerciseLists.length).fill(null); it.mp.exerciseListsDone=new Array(it.module.exerciseLists.length).fill(false); it.mp.quizScore=null; it.mp.recoveryScore=null; it.mp.correction=c; await saveProgress(it.student); await logAudit('modulo_devolvido',`${state.user.name} devolveu o módulo "${it.module.title}" de ${it.student.name} para ajustes.`); await loadCorrecoesPendentes(); render();
     }));
+    document.querySelectorAll('[data-toggle-student-details]').forEach(btn=>btn.addEventListener('click',()=>{const idx=btn.getAttribute('data-toggle-student-details'), row=document.querySelector(`[data-student-detail="${idx}"]`); if(!row)return; const open=row.style.display!=='none'; row.style.display=open?'none':'table-row'; btn.textContent=open?'Ver detalhes':'Ocultar detalhes';}));
     const exportGrades=document.getElementById('btn-export-grades'); if(exportGrades) exportGrades.addEventListener('click',()=>downloadText('notas_contabilidade_avancada.csv',gradesCsv(),'text/csv;charset=utf-8'));
     const printReport=document.getElementById('btn-print-report'); if(printReport) printReport.addEventListener('click',()=>window.print());
     const exportBackup=document.getElementById('btn-export-backup'); if(exportBackup) exportBackup.addEventListener('click',()=>{const names=new Set(); (state.turmas||[]).forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim()))); const alunos=(state.roster||[]).filter(r=>names.has((r.name||'').trim())); const payload={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),professor:state.user.name,turmas:state.turmas,alunos}; downloadText(`backup_contabilidade_avancada_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json;charset=utf-8'); logAudit('backup_exportado',`${state.user.name} gerou backup pedagógico.`);});
