@@ -16,12 +16,18 @@ service cloud.firestore {
     // Perfil de cada usuário (nome, e-mail, perfil: aluno | professor | admin)
     match /users/{uid} {
       allow read: if isSignedIn();
-      // Só o próprio usuário cria/edita seu perfil (o cadastro público nunca
-      // grava role = "admin" — promova um usuário a admin manualmente pelo
-      // Console do Firestore, trocando o campo "role" do documento dele).
-      allow create: if isSignedIn() && request.auth.uid == uid
-                    && request.resource.data.role in ['aluno', 'professor'];
-      allow update: if isSignedIn() && request.auth.uid == uid;
+      // Qualquer usuário autenticado cria o próprio perfil na primeira vez
+      // que entra (o papel escolhido, incluindo "admin" via Código de
+      // Mestre, é decidido pelo próprio app na hora do primeiro login).
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      // Um usuário pode atualizar o PRÓPRIO documento, desde que não mude
+      // o próprio "role" (evita autopromoção). Só um Usuário Mestre pode
+      // alterar o "role" de qualquer conta, inclusive a de outras pessoas —
+      // é assim que o painel de Usuários funciona.
+      allow update: if isSignedIn() && (
+        (request.auth.uid == uid && request.resource.data.role == resource.data.role) ||
+        myRole() == 'admin'
+      );
       allow delete: if false;
     }
 
