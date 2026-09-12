@@ -2,3 +2,4 @@
   "indexes": [],
   "fieldOverrides": []
 }
+export const MASTER_CODE = "623251@_@prof"
