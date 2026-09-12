@@ -28,9 +28,9 @@ jobs:
               sed '${/^ $/d;}' "$f" >> /tmp/improvements.patch
             else
               cat "$f" >> /tmp/improvements.patch
-            fi
-            if [ -n "$(tail -c 1 "$f")" ]; then
-              printf '\n' >> /tmp/improvements.patch
+              if [ -n "$(tail -c 1 "$f")" ]; then
+                printf '\n' >> /tmp/improvements.patch
+              fi
             fi
           done
           git apply --check /tmp/improvements.patch
@@ -41,6 +41,7 @@ jobs:
         shell: bash
         run: |
           rm -f tools/improvements.patch.part01 tools/improvements.patch.part02 tools/improvements.patch.part03 tools/improvements.patch.part04 tools/improvements.patch.part05
+          rm -f tools/payload.b64.part00
           rm -f .github/workflows/apply-improvements.yml
           rmdir tools 2>/dev/null || true
 
