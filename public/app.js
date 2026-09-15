@@ -1972,6 +1972,31 @@ async function kvList(prefix){
 
   function docShell(title,body){ return `<div class="section-title">${esc(title)}</div><div class="toolbar"><button class="btn-outline" id="btn-print-doc">Imprimir / Salvar PDF</button></div><div class="panel doc-panel">${body}</div>`; }
   function renderManualOperacional(){ return docShell('Manual Operacional',`<h4>1. Acesso e perfis</h4><p>O acesso é realizado exclusivamente com conta Google. Alunos entram como Aluno(a); Professores novos aguardam aprovação do Usuário Mestre.</p><h4>2. Turmas e alunos</h4><p>Crie a turma, cadastre alunos individualmente ou importe PDF, confira nome e matrícula e salve os prazos dos cinco módulos.</p><h4>3. Prazos e módulos</h4><p>O Módulo 1 inicia liberado. Os demais são liberados somente após a realização obrigatória das 5 listas, do Quiz e da Recuperação do módulo anterior e a liberação individual do professor. Após o prazo, o módulo bloqueia; quando o professor autoriza entrega em atraso, aplica-se desconto automático de 2,0 pontos na primeira conclusão fora do prazo original.</p><h4>4. Avaliação e notas</h4><p>Listas, Quiz e Recuperação são autocorrigidos e a Recuperação é obrigatória. Ela substitui todas as notas inferiores entre as 6 atividades avaliativas. A Nota do Módulo é calculada automaticamente; o professor não corrige a nota, mas libera individualmente a progressão para o módulo seguinte.</p><h4>5. Planejamento docente</h4><p>O menu Planejamento reúne Cadastros, Planejamento Semestral e Plano de Aula. Em Cadastros, configure Cabeçalho, Escolas e Cursos; as Turmas são reaproveitadas do cadastro pedagógico da plataforma. A disciplina é fixa em Contabilidade Avançada (CA). Os planejamentos podem ser criados, editados, impressos ou salvos em PDF. O Plano de Aula exige data de início e fim, tem periodicidade máxima de 30 dias e não permite sobreposição de períodos para a mesma turma.</p><h4>6. Guia Pedagógico</h4><p>Área exclusiva do Professor com PDFs de metodologia e slides de apoio por módulo. Os materiais ficam separados do ambiente do Aluno e seguem a estrutura padronizada do projeto.</p><h4>7. Pendências, relatórios e suporte</h4><p>Pendências reúne alunos aguardando liberação de módulo, cadastros a regularizar e mensagens aguardando resposta. Relatórios apresentam resumo e detalhamento por atividade; Auditoria, Backup e Suporte permanecem disponíveis no painel do Professor.</p>`); }
+  const STATUS_CHECKLIST = [
+    ['CHK-001','Login Google e perfis de acesso','Implantado'],
+    ['CHK-002','Aprovação de acesso do Professor','Implantado'],
+    ['CHK-003','Cadastro e manutenção de Turmas','Implantado'],
+    ['CHK-004','Cadastro/importação de alunos e matrícula','Implantado'],
+    ['CHK-005','Prazos, atraso e bloqueio dos módulos','Implantado'],
+    ['CHK-006','5 listas de exercícios por módulo','Implantado'],
+    ['CHK-007','Quiz e Recuperação obrigatória','Implantado'],
+    ['CHK-008','Cálculo automático e substituição pela Recuperação','Implantado'],
+    ['CHK-009','Pendências e liberação pedagógica individual','Implantado'],
+    ['CHK-010','Planejamento docente','Implantado'],
+    ['CHK-011','Relatórios e exportação de notas','Implantado'],
+    ['CHK-012','Suporte e chamados','Implantado'],
+    ['CHK-013','Auditoria','Implantado'],
+    ['CHK-014','Backup pedagógico e backup antes de sair','Implantado'],
+    ['CHK-015','Manual Operacional e Checklist de Status','Implantado']
+  ];
+  function checklistCsv(){
+    const rows=[['Código','Processo / Funcionalidade','Status'],...STATUS_CHECKLIST];
+    return '\ufeff'+rows.map(r=>r.map(csvEscape).join(';')).join('\n');
+  }
+  function renderChecklistStatus(){
+    return `<div class="section-title">Checklist de Status</div><div class="note">Conferência operacional das principais funcionalidades da plataforma Contabilidade Avançada.</div><div class="toolbar"><button class="btn-outline" id="btn-print-checklist">Imprimir / Salvar PDF</button><button class="btn-brass" id="btn-export-checklist">Exportar CSV</button></div><div class="table-scroll"><table class="roster"><tr><th>Código</th><th>Processo / Funcionalidade</th><th>Status</th></tr>${STATUS_CHECKLIST.map(r=>`<tr><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td><td><span class="status-badge ok">${esc(r[2])}</span></td></tr>`).join('')}</table></div>`;
+  }
+
   const GUIA_PEDAGOGICO_MATERIAIS = {
     metodologia:[
       {titulo:'Metodologia de Ensino-Aprendizagem — Contabilidade Avançada',descricao:'Referencial metodológico da disciplina: sala de aula invertida, aprendizagem baseada em problemas, grupos operativos, prática guiada e abordagem inclusiva.',arquivo:'/guia-pedagogico/metodologia/metodologia-contabilidade-avancada.pdf'},
@@ -1985,6 +2010,12 @@ async function kvList(prefix){
   function renderGuiaPedagogico(){
     if(!state.user||state.user.role!=='professor') return `<div class="empty-state">Área exclusiva do Professor.</div>`;
     return `<div class="section-title">Guia Pedagógico do Professor</div><div class="note"><b>Área exclusiva do Professor.</b> Reúne orientações metodológicas e slides de apoio da disciplina Contabilidade Avançada. Os materiais pedagógicos desta área não aparecem no ambiente do Aluno.</div><div class="card-box"><h4>Organização didática</h4><p>A disciplina está estruturada em cinco módulos progressivos. O estudante realiza as cinco listas, o Quiz e a Recuperação obrigatória; o avanço depende da liberação individual do professor.</p><p>Use os documentos metodológicos como referência para planejamento, condução das aulas, avaliação e recuperação. Os slides são materiais de apoio ao desenvolvimento presencial dos conteúdos.</p></div><div class="section-title">PDFs de Metodologia</div>${GUIA_PEDAGOGICO_MATERIAIS.metodologia.map(x=>guiaMaterialCard(x,'metodologia')).join('')}<div class="section-title">Slides por Módulo</div>${GUIA_PEDAGOGICO_MATERIAIS.slides.map(x=>guiaMaterialCard(x,'slides')).join('')}<div class="note">Os botões ficam vinculados à estrutura padronizada <b>06-guia-pedagogico</b>. Caso um PDF ainda não tenha sido publicado, o material deve ser incluído na pasta correspondente do projeto mantendo o mesmo nome de arquivo.</div>`;
+  }
+
+  function renderTurmasSection(){
+    const turma = state.activeTurmaId ? (state.turmas || []).find(t => t.id === state.activeTurmaId) : null;
+    if (state.activeTurmaId && !turma) state.activeTurmaId = null;
+    return turma ? renderTurmaDetail(turma) : renderTurmaList();
   }
 
   function renderTurmaList(){
@@ -2610,6 +2641,8 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
     const auditAll=document.getElementById('audit-all'); if(auditAll) auditAll.addEventListener('click',()=>{state.accessAuditOnly=false;render();});
     const auditAccess=document.getElementById('audit-access'); if(auditAccess) auditAccess.addEventListener('click',()=>{state.accessAuditOnly=true;render();});
     const printDoc=document.getElementById('btn-print-doc'); if(printDoc) printDoc.addEventListener('click',()=>window.print());
+    const printChecklist=document.getElementById('btn-print-checklist'); if(printChecklist) printChecklist.addEventListener('click',()=>window.print());
+    const exportChecklist=document.getElementById('btn-export-checklist'); if(exportChecklist) exportChecklist.addEventListener('click',()=>downloadText('checklist_status_contabilidade_avancada.csv',checklistCsv(),'text/csv;charset=utf-8'));
     const printSupport=document.getElementById('btn-print-support'); if(printSupport) printSupport.addEventListener('click',()=>window.print());
     const printSupportList=document.getElementById('btn-print-support-list'); if(printSupportList) printSupportList.addEventListener('click',()=>window.print());
     const saveSupport=document.getElementById('btn-save-support-control'); if(saveSupport) saveSupport.addEventListener('click',async()=>{const t=state.suporteThread;if(!t)return;const old=t.status;const st=document.getElementById('support-status'),due=document.getElementById('support-due'),reo=document.getElementById('support-reopen');t.status=st?st.value:t.status;t.responseDueAt=due&&due.value?new Date(due.value).getTime():null;t.reopenUntil=reo&&reo.value?new Date(reo.value).getTime():null;t.updatedAt=Date.now();if(t.status==='encerrado'&&old!=='encerrado')t.closedAt=Date.now();if(t.status!=='encerrado')t.closedAt=null;if(old!==t.status)t.history.push({type:'status',from:old,to:t.status,ts:Date.now(),by:state.user.name});t.history.push({type:'controle_administrativo',ts:Date.now(),by:state.user.name,responseDueAt:t.responseDueAt,reopenUntil:t.reopenUntil});const kind=state.user.role==='professor'?(state.suporteTab==='alunos'?'aluno-professor':'professor-admin'):suporteInboxKind();await saveThread(kind,t);await logAudit('status_suporte',`${state.user.name} alterou o chamado ${t.protocol||''} para ${supportStatusLabel(t.status)}.`);render();});
