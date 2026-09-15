@@ -44,6 +44,42 @@
 
   #cont-avancada .wrap { max-width: 900px; margin: 0 auto; padding: 28px 22px 60px; }
 
+  /* Layout principal com menu lateral */
+  #cont-avancada .app-shell { min-height:100vh; display:flex; background:var(--paper); }
+  #cont-avancada .sidebar { width:270px; flex:0 0 270px; min-height:100vh; position:sticky; top:0; align-self:flex-start; height:100vh; overflow-y:auto; background:#101826; color:#F4F7FA; border-right:1px solid #26384A; display:flex; flex-direction:column; z-index:50; }
+  #cont-avancada .sidebar-brand { display:flex; gap:11px; align-items:center; padding:22px 18px; border-bottom:1px solid #26384A; }
+  #cont-avancada .sidebar-logo { width:40px; height:40px; border-radius:9px; display:grid; place-items:center; background:#17364A; color:#59C3E1; font-weight:800; border:1px solid #2E8CA8; }
+  #cont-avancada .sidebar-brand b { display:block; font-size:14px; line-height:1.2; }
+  #cont-avancada .sidebar-brand small { display:block; color:#91A8BA; font-size:11px; margin-top:3px; }
+  #cont-avancada .side-nav { padding:12px 0; flex:1; }
+  #cont-avancada .side-group { margin:0 0 10px; }
+  #cont-avancada .side-group-title { padding:10px 20px 6px; font-size:10px; letter-spacing:.11em; color:#6F879A; font-weight:700; }
+  #cont-avancada .sidebar .nav-item { width:100%; display:flex; align-items:center; gap:11px; border:0; border-left:3px solid transparent; background:transparent; color:#B8C7D4; padding:10px 17px; text-align:left; cursor:pointer; font:inherit; font-size:13.5px; }
+  #cont-avancada .sidebar .nav-item:hover { background:#182536; color:#fff; }
+  #cont-avancada .sidebar .nav-item.active { background:#223147; border-left-color:#2E8CA8; color:#fff; font-weight:600; }
+  #cont-avancada .nav-icon { width:21px; text-align:center; color:#62B8D0; font-size:15px; flex:0 0 21px; }
+  #cont-avancada .sidebar-user { border-top:1px solid #26384A; padding:14px 18px 18px; }
+  #cont-avancada .sidebar-user span,#cont-avancada .sidebar-user b { display:block; }
+  #cont-avancada .sidebar-user span { color:#71899B; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+  #cont-avancada .sidebar-user b { font-size:12.5px; margin:3px 0 10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #cont-avancada .sidebar-user button { border:1px solid #3B5063; background:transparent; color:#B8C7D4; border-radius:4px; padding:6px 11px; cursor:pointer; }
+  #cont-avancada .app-main { min-width:0; flex:1; }
+  #cont-avancada .app-main .wrap { max-width:1180px; }
+  #cont-avancada .mobile-bar { display:none; }
+  #cont-avancada .sidebar-overlay { display:none; }
+  @media (max-width:900px){
+    #cont-avancada .sidebar { position:fixed; left:0; top:0; transform:translateX(-102%); transition:transform .2s ease; box-shadow:8px 0 28px rgba(0,0,0,.25); }
+    body.sidebar-open #cont-avancada .sidebar { transform:translateX(0); }
+    #cont-avancada .sidebar-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:40; }
+    body.sidebar-open #cont-avancada .sidebar-overlay { display:block; }
+    #cont-avancada .mobile-bar { display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:30; background:#101826; color:#F4F7FA; padding:10px 14px; border-bottom:1px solid #26384A; }
+    #cont-avancada .mobile-bar button { border:1px solid #3B5063; background:#15202F; color:#fff; width:38px; height:36px; border-radius:5px; font-size:20px; cursor:pointer; }
+    #cont-avancada .mobile-bar b,#cont-avancada .mobile-bar small { display:block; }
+    #cont-avancada .mobile-bar small { color:#91A8BA; font-size:10px; }
+    #cont-avancada .masthead { padding:16px 18px 12px; }
+    #cont-avancada .wrap { padding:20px 14px 50px; }
+  }
+
   /* Login */
   #cont-avancada .login-card {
     max-width: 420px; margin: 60px auto; background: var(--card);

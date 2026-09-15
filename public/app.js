@@ -1511,18 +1511,7 @@ async function kvList(prefix){
     if (state.view === 'access-pending') { renderAccessPending(); return; }
 
     const roleLabel = state.user.role === 'professor' ? 'Professor' : (state.user.role === 'admin' ? 'Usuário Mestre' : 'Aluno');
-    let inner = `<div class="masthead"><div class="masthead-row">
-      <div>
-        <h1 class="serif">Contabilidade Avançada</h1>
-        <div class="kicker">Sala de aula — provisões, resultado, destinações, IRPF e ganho de capital</div>
-      </div>
-      <div class="userbadge">${roleLabel}: <b>${esc(state.user.name)}</b>
-        <button id="btn-logout">sair</button>
-      </div>
-    </div>
-    ${renderNav()}
-    </div>
-    <div class="wrap">`;
+    let inner = `<div class="app-shell"><aside class="sidebar" id="app-sidebar"><div class="sidebar-brand"><div class="sidebar-logo">CA</div><div><b>Contabilidade Avançada</b><small>CEDUP Hermann Hering</small></div></div>${renderNav()}<div class="sidebar-user"><span>${roleLabel}</span><b>${esc(state.user.name)}</b><button id="btn-logout">Sair</button></div></aside><div class="app-main"><div class="mobile-bar"><button id="btn-sidebar-toggle" aria-label="Abrir menu">☰</button><div><b>Contabilidade Avançada</b><small>${roleLabel}</small></div></div><div class="masthead"><div class="masthead-row"><div><h1 class="serif">Contabilidade Avançada</h1><div class="kicker">Sala de aula — provisões, resultado, destinações, IRPF e ganho de capital</div></div></div></div><div class="wrap">`;
 
     if (state.view === 'dashboard') inner += renderDashboard();
     else if (state.view === 'module') inner += renderModule();
@@ -1532,7 +1521,7 @@ async function kvList(prefix){
     else if (state.view === 'notas') inner += renderMinhasNotas();
     else if (state.view === 'usuarios') inner += renderUsuarios();
 
-    inner += `</div>`;
+    inner += `</div></div></div><div class="sidebar-overlay" id="sidebar-overlay"></div>`;
     root.innerHTML = inner;
     attachHandlers();
   }
@@ -1544,15 +1533,10 @@ async function kvList(prefix){
     else if (role === 'professor') items = [['professor:turmas','Turmas'],['professor:planejamento','Planejamento'],['professor:acompanhamento','Notas da Turma'],['professor:correcoes','Pendências'],['professor:relatorios','Relatórios'],['professor:backup','Backup'],['professor:auditoria','Auditoria'],['professor:operacional','Manual Operacional'],['professor:checklist','Checklist'],['professor:guia','Guia Pedagógico'],['manual','Manual do Professor'],['suporte','Suporte']];
     else items = [['suporte','Suporte'],['usuarios','Usuários']];
 
-    return `<div class="topnav">` + items.map(([key,label]) => {
-      let active = false;
-      if (key.startsWith('professor:')){
-        active = state.view === 'professor' && state.professorTab === key.split(':')[1];
-      } else {
-        active = state.view === key;
-      }
-      return `<div class="nav-item ${active?'active':''}" data-nav="${key}">${esc(label)}</div>`;
-    }).join('') + `</div>`;
+    const icons={dashboard:'⌂',notas:'★',manual:'▤',suporte:'◉','professor:turmas':'▦','professor:planejamento':'▣','professor:acompanhamento':'▥','professor:correcoes':'!','professor:relatorios':'▧','professor:backup':'⇩','professor:auditoria':'◎','professor:operacional':'▤','professor:checklist':'✓','professor:guia':'◇',usuarios:'♙'};
+    const groups = role==='professor' ? [['GESTÃO',['professor:turmas','professor:planejamento']],['ACOMPANHAMENTO',['professor:acompanhamento','professor:correcoes','professor:relatorios']],['FERRAMENTAS',['professor:backup','professor:auditoria']],['ORIENTAÇÕES',['professor:operacional','professor:checklist','professor:guia','manual']],['OUTROS',['suporte']]] : role==='aluno' ? [['APRENDIZADO',['dashboard','notas','manual']],['OUTROS',['suporte']]] : [['ADMINISTRAÇÃO',['usuarios']],['OUTROS',['suporte']]];
+    const byKey=Object.fromEntries(items);
+    return `<nav class="side-nav">`+groups.map(([title,keys])=>`<div class="side-group"><div class="side-group-title">${title}</div>${keys.filter(k=>byKey[k]).map(key=>{let active=key.startsWith('professor:')?(state.view==='professor'&&state.professorTab===key.split(':')[1]):state.view===key;return `<button class="nav-item ${active?'active':''}" data-nav="${key}"><span class="nav-icon">${icons[key]||'•'}</span><span>${esc(byKey[key])}</span></button>`;}).join('')}</div>`).join('')+`</nav>`;
   }
 
   function renderAccessPending(){
@@ -2230,6 +2214,10 @@ async function kvList(prefix){
   function attachHandlers(){
     const logout = document.getElementById('btn-logout');
     if (logout) logout.addEventListener('click', () => requestLogoutWithBackup());
+    const sidebar=document.getElementById('app-sidebar'), sidebarToggle=document.getElementById('btn-sidebar-toggle'), sidebarOverlay=document.getElementById('sidebar-overlay');
+    const closeSidebar=()=>document.body.classList.remove('sidebar-open');
+    if(sidebarToggle) sidebarToggle.addEventListener('click',()=>document.body.classList.toggle('sidebar-open'));
+    if(sidebarOverlay) sidebarOverlay.addEventListener('click',closeSidebar);
 
     document.querySelectorAll('.module-row').forEach(row => {
       row.addEventListener('click', () => {
@@ -2324,6 +2312,7 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', async () => {
         const key = item.getAttribute('data-nav');
+        document.body.classList.remove('sidebar-open');
         if (key === 'suporte'){ await openSuporte(); return; }
         if (key === 'manual'){ state.view = 'manual'; render(); return; }
         if (key === 'notas'){ state.view = 'notas'; render(); return; }
