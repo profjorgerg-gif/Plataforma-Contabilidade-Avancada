@@ -11,7 +11,7 @@ import {
   GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, query,
+  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query,
   where, documentId
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { firebaseConfig, MASTER_CODE } from "./firebase-config.js";
@@ -33,6 +33,7 @@ async function kvSet(key, value){
   await setDoc(doc(db, 'kv_store', key), { value, updatedAt: Date.now() });
   return { key, value };
 }
+async function kvDelete(key){ await deleteDoc(doc(db,'kv_store',key)); }
 async function kvList(prefix){
   const kvRef = collection(db, 'kv_store');
   const q = query(kvRef, where(documentId(), '>=', prefix), where(documentId(), '<', prefix + '\uf8ff'));
@@ -739,6 +740,9 @@ async function kvList(prefix){
     accessPendingMessage: '',
     studentTurma: null,
     accessAuditOnly: false,
+    suporteSelected: [],
+    backupTurmaId: '',
+    backupSemester: '',
 
     // ---- Planejamento docente ----
     planningSubtab: 'catalog', // catalog | semester | lesson
@@ -977,11 +981,12 @@ async function kvList(prefix){
     ['resolvido','Resolvido'],['encerrado','Encerrado']
   ];
   function supportStatusLabel(status){ const x=SUPPORT_STATUSES.find(i=>i[0]===status); return x?x[1]:'Aberto'; }
+  function supportStatusClass(status){ return ({aberto:'info',em_analise:'warn',aguardando_resposta:'warn',encaminhado_desenvolvimento:'info',aprovado_desenvolvimento:'info',resolvido:'ok',encerrado:'neutral'})[status]||'info'; }
   function normalizeThread(t, participantKey){
     t=t||{}; t.participantName=t.participantName||participantKey; t.protocol=t.protocol||''; t.status=t.status||'aberto';
     t.createdAt=t.createdAt||null; t.updatedAt=t.updatedAt||null; t.responseDueAt=t.responseDueAt||null;
     t.closedAt=t.closedAt||null; t.reopenUntil=t.reopenUntil||null; t.messages=Array.isArray(t.messages)?t.messages:[];
-    t.history=Array.isArray(t.history)?t.history:[]; return t;
+    t.history=Array.isArray(t.history)?t.history:[]; t.cycle=Number(t.cycle||1); return t;
   }
   function canReopenThread(t){ return !!(t && t.status==='encerrado' && (!t.reopenUntil || Date.now()<=Number(t.reopenUntil))); }
   async function loadThread(kind, participantKey){
@@ -1344,7 +1349,7 @@ async function kvList(prefix){
   function correctionState(mp){
     if (!mp) return { status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[], firstSubmittedAt:null, late:false, latePenalty:0 };
     if(!mp.correction) mp.correction={ status:'liberado', submittedAt:null, reviewedAt:null, feedback:'', finalGrade:null, released:false, history:[], firstSubmittedAt:null, late:false, latePenalty:0 };
-    const c=mp.correction; if(!Array.isArray(c.history))c.history=[]; if(c.firstSubmittedAt===undefined)c.firstSubmittedAt=null; if(c.late===undefined)c.late=false; if(c.latePenalty===undefined)c.latePenalty=0;
+    const c=mp.correction; if(!Array.isArray(c.history))c.history=[]; if(c.firstSubmittedAt===undefined)c.firstSubmittedAt=null; if(c.late===undefined)c.late=false; if(c.latePenalty===undefined)c.latePenalty=0; if(c.cycle===undefined)c.cycle=1;
     // Compatibilidade: versões anteriores liberavam o módulo automaticamente.
     // Preservamos liberações humanas legadas (aprovação) e as novas liberações pedagógicas;
     // somente liberações automáticas voltam a aguardar decisão explícita do professor.
@@ -1734,9 +1739,9 @@ async function kvList(prefix){
     </ul>
     <h4>Planejamento</h4><p>O menu "Planejamento" possui Cadastros, Planejamento Semestral e Plano de Aula. Em Cadastros, mantenha Cabeçalho, Escolas e Cursos; as Turmas são compartilhadas com o cadastro principal. A única disciplina disponível é Contabilidade Avançada (CA). É possível salvar, editar e imprimir/salvar em PDF. No Plano de Aula, informe obrigatoriamente data de início e fim; cada período pode ter no máximo 30 dias e não pode se sobrepor a outro plano da mesma turma.</p>
     <h4>Notas da Turma</h4>
-    <p>O menu "Notas da Turma" mostra a Nota do Módulo e permite abrir o detalhamento de cada aluno, com Ex. 1 a Ex. 5, Quiz, Recuperação e identificação de toda substituição no formato nota original → nota considerada. As notas são calculadas automaticamente.</p><h4>Pendências</h4><p>A área "Pendências" reúne alunos que concluíram o ciclo avaliativo e aguardam liberação individual do próximo módulo, além de cadastros incompletos e mensagens aguardando resposta. As notas permanecem automáticas; o professor controla apenas a progressão pedagógica.</p><h4>Relatórios e Backup</h4><p>"Relatórios" apresenta o Relatório de Desempenho com resumo da turma, progresso e detalhamento por atividade, com CSV e impressão/PDF. "Backup" gera arquivo JSON das turmas e dados pedagógicos vinculados.</p>
+    <p>O menu "Notas da Turma" mostra a Nota do Módulo e permite abrir o detalhamento de cada aluno, com Ex. 1 a Ex. 5, Quiz, Recuperação e identificação de toda substituição no formato nota original → nota considerada. As notas são calculadas automaticamente.</p><h4>Pendências</h4><p>A área "Pendências" reúne alunos que concluíram o ciclo avaliativo e aguardam liberação individual do próximo módulo, além de cadastros incompletos e mensagens aguardando resposta. As notas permanecem automáticas; o professor controla apenas a progressão pedagógica.</p><h4>Relatórios e Backup</h4><p>"Relatórios" apresenta o Relatório de Desempenho com resumo da turma, progresso e detalhamento por atividade, com CSV e impressão/PDF. "Backup" permite exportação por turma e semestre e, mediante confirmação, exclusão completa da turma e registros pedagógicos vinculados.</p>
     <h4>Suporte</h4>
-    <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, com chamados identificados por protocolo e status, onde você pode responder, encerrar ou reabrir cada atendimento; e <b>Administração</b>, seu canal direto com a administração da plataforma.</p>
+    <p>No menu "Suporte" há duas áreas: <b>Alunos</b>, com chamados identificados por protocolo, os sete estados administrativos, prazo de resposta, reabertura, histórico permanente e relatório selecionável para impressão/PDF; e <b>Administração</b>, seu canal direto com a administração da plataforma.</p>
   `;
   function renderManual(){
     const role = state.user.role;
@@ -1752,6 +1757,7 @@ async function kvList(prefix){
     html+=`<div class="support-dates">Prazo de resposta: <b>${thread.responseDueAt?new Date(Number(thread.responseDueAt)).toLocaleString('pt-BR'):'não definido'}</b>${thread.reopenUntil?` · Reabertura até: <b>${new Date(Number(thread.reopenUntil)).toLocaleString('pt-BR')}</b>`:''}</div>`;
     if(state.user&&state.user.role!=='aluno'&&thread.protocol){ html+=`<div class="support-controls"><div><label>Status</label><select id="support-status">${SUPPORT_STATUSES.map(([v,l])=>`<option value="${v}" ${thread.status===v?'selected':''}>${esc(l)}</option>`).join('')}</select></div><div><label>Prazo de resposta</label><input type="datetime-local" id="support-due" value="${thread.responseDueAt?new Date(Number(thread.responseDueAt)-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):''}"></div><div><label>Reabertura permitida até</label><input type="datetime-local" id="support-reopen" value="${thread.reopenUntil?new Date(Number(thread.reopenUntil)-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):''}"></div><button class="btn-brass" id="btn-save-support-control">Salvar atendimento</button></div>`; }
     if(closed&&canReopenThread(thread)) html+=`<button class="btn-outline" id="btn-reopen-support">Reabrir chamado</button>`;
+    if(thread.history.length){ html+=`<details class="card-box" style="margin:12px 0"><summary><b>Histórico administrativo (${thread.history.length})</b></summary><div style="margin-top:10px">${thread.history.slice().reverse().map(h=>`<div class="thread-preview">${new Date(Number(h.ts||Date.now())).toLocaleString('pt-BR')} · ${esc(h.by||'Sistema')} · ${esc(h.type||'evento')}${h.from||h.to?' · '+esc(supportStatusLabel(h.from||''))+' → '+esc(supportStatusLabel(h.to||'')):''}</div>`).join('')}</div></details>`; }
     html+=`<div class="chat-box">`;
     if(!messages.length) html+=`<div class="empty-state" style="padding:24px">Nenhuma mensagem ainda. Envie a primeira mensagem abaixo.</div>`;
     else messages.forEach(m=>{const mine=m.from===myRole; html+=`<div class="chat-msg ${mine?'mine':''}"><div class="chat-meta">${esc(m.name)} · ${new Date(m.ts).toLocaleString('pt-BR')}</div><div class="chat-bubble">${esc(m.text)}</div></div>`;});
@@ -1764,13 +1770,8 @@ async function kvList(prefix){
     let html = '';
     list.forEach(t => {
       const last = t.messages.length ? t.messages[t.messages.length-1] : null;
-      html += `<div class="thread-row" data-thread="${esc(t.participantName)}">
-        <div>
-          <b>${esc(t.participantName)}</b> <span class="status-badge ${t.status==='encerrado'?'neutral':t.status==='resolvido'?'ok':'info'}">${esc(supportStatusLabel(t.status))}</span>
-          <div class="thread-preview">${t.protocol?esc(t.protocol)+' · ':''}${last ? esc(last.text.slice(0,70)) : 'Sem mensagens ainda'}</div>
-        </div>
-        <span class="back-link">Abrir →</span>
-      </div>`;
+      const selected=(state.suporteSelected||[]).includes(t.participantName);
+      html += `<div class="thread-row"><label class="checkline" style="margin-right:10px"><input type="checkbox" data-support-select="${esc(t.participantName)}" ${selected?'checked':''}></label><div class="thread-open" data-thread="${esc(t.participantName)}" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex:1;cursor:pointer"><div><b>${esc(t.participantName)}</b> <span class="status-badge ${supportStatusClass(t.status)}">${esc(supportStatusLabel(t.status))}</span><div class="thread-preview">${t.protocol?esc(t.protocol)+' · ':''}${last?esc(last.text.slice(0,70)):'Sem mensagens ainda'}${t.responseDueAt?' · Prazo: '+new Date(Number(t.responseDueAt)).toLocaleString('pt-BR'):''}</div></div><span class="back-link">Abrir →</span></div></div>`;
     });
     return html;
   }
@@ -1832,7 +1833,7 @@ async function kvList(prefix){
         html += `<h4 style="margin:6px 0 14px">${esc(state.suporteActiveThreadKey)}</h4>`;
         html += renderThreadConversation(state.suporteThread, role);
       } else {
-        html += `<div class="toolbar"><button class="btn-outline" id="btn-print-support-list">Relatório / Salvar PDF</button></div>` + renderInboxList(state.suporteInbox);
+        html += `<div class="toolbar"><button class="btn-outline" id="btn-print-support-list">Relatório geral / PDF</button><button class="btn-brass" id="btn-print-support-selected">Imprimir selecionados / PDF</button><button class="btn-outline" id="btn-select-all-support">Selecionar todos</button></div>` + renderInboxList(state.suporteInbox);
       }
     } else {
       html += renderThreadConversation(state.suporteThread, role);
@@ -1980,7 +1981,8 @@ async function kvList(prefix){
   }
 
   function renderBackup(){
-    return `<div class="section-title">Backup</div><div class="note">Gera um arquivo JSON com as turmas deste professor e os registros pedagógicos dos alunos que constam nessas turmas. O arquivo não altera nem apaga dados do Firestore.</div><div class="card-box"><h4>Backup pedagógico</h4><p class="desc">Inclui turmas, alunos cadastrados, progresso/notas e os Planejamentos Semestrais e Planos de Aula do professor.</p><button class="btn-brass" id="btn-export-backup">Gerar backup JSON</button></div>`;
+    const semesters=[...new Set((state.turmas||[]).map(t=>t.semester||'').filter(Boolean))].sort().reverse();
+    return `<div class="section-title">Backup por Turma e Semestre</div><div class="note">Exporte toda a base pedagógica ou filtre por turma e semestre. A exclusão de turma remove de forma encadeada o cadastro da turma e os registros pedagógicos vinculados aos alunos daquela turma, mediante confirmação explícita.</div><div class="card-box"><h4>Selecionar escopo</h4><div class="inline-form"><div class="field"><label>Turma</label><select id="backup-turma"><option value="">Todas as turmas</option>${(state.turmas||[]).map(t=>`<option value="${esc(t.id)}" ${state.backupTurmaId===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div><div class="field"><label>Semestre</label><select id="backup-semester"><option value="">Todos os semestres</option>${semesters.map(v=>`<option ${state.backupSemester===v?'selected':''}>${esc(v)}</option>`).join('')}</select></div></div><div class="toolbar"><button class="btn-brass" id="btn-export-backup">Gerar backup JSON</button></div></div><div class="card-box"><h4>Exclusão completa de turma</h4><p class="desc">Selecione uma turma acima. Antes de excluir, gere o backup. A operação remove turma, progresso dos alunos vinculados e chamados de suporte desses alunos. Planejamentos gerais do professor são preservados.</p><button class="btn-outline" id="btn-delete-turma-complete" ${state.backupTurmaId?'':'disabled'}>Excluir turma e registros vinculados</button></div>`;
   }
 
   function docShell(title,body){ return `<div class="section-title">${esc(title)}</div><div class="toolbar"><button class="btn-outline" id="btn-print-doc">Imprimir / Salvar PDF</button></div><div class="panel doc-panel">${body}</div>`; }
@@ -2029,7 +2031,7 @@ async function kvList(prefix){
     let html = `<span class="back-link" id="back-turmas">← Voltar às turmas</span>`;
     html += `<div class="module-header" style="--mcolor:#A87C3F">
       <h2 class="serif">${esc(turma.name)}</h2>
-      <div class="subtitle">${turma.students.length} aluno${turma.students.length===1?'':'s'} matriculado${turma.students.length===1?'':'s'}</div>
+      <div class="subtitle">${turma.students.length} aluno${turma.students.length===1?'':'s'} matriculado${turma.students.length===1?'':'s'} · ${esc(turma.semester||'Semestre não informado')}</div>
     </div>`;
 
     // Individual add
@@ -2284,7 +2286,7 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
         const c = correctionState(activeMp); const now = Date.now();
         if (!c.firstSubmittedAt){
           const access = moduleAccess(m); c.firstSubmittedAt = now; c.late = !!access.late; c.latePenalty = access.late ? 2 : 0;
-          c.history.push({type:'ciclo_avaliativo_concluido',ts:now,late:c.late,latePenalty:c.latePenalty});
+          c.history.push({type:c.cycle>1?'reenvio':'envio',cycle:c.cycle,ts:now,late:c.late,latePenalty:c.latePenalty});
         }
         c.status='aguardando_liberacao'; c.reviewedAt=null; c.released=false; c.finalGrade=effectiveModuleGrade(activeMp); activeMp.correction=c;
       }
@@ -2340,7 +2342,7 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
     if (btnConfirmTurma) btnConfirmTurma.addEventListener('click', async () => {
       const name = state.newTurmaName.trim();
       if (!name) return;
-      const turma = { id: newTurmaId(), name, professor: state.user.name, students: [], createdAt: Date.now() };
+      const turma = { id: newTurmaId(), name, professor: state.user.name, semester: (new Date().getMonth()<6?'1º':'2º')+' semestre/'+new Date().getFullYear(), students: [], createdAt: Date.now() };
       await saveTurma(turma);
       state.turmas.unshift(turma);
       state.creatingTurma = false; state.newTurmaName = '';
@@ -2526,12 +2528,17 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
       });
     });
 
-    document.querySelectorAll('.thread-row[data-thread]').forEach(row => {
+    document.querySelectorAll('[data-thread]').forEach(row => {
       row.addEventListener('click', async () => {
         const name = row.getAttribute('data-thread');
         await selectSuporteThread(name);
       });
     });
+
+    document.querySelectorAll('[data-support-select]').forEach(cb=>cb.addEventListener('click',e=>e.stopPropagation()));
+    document.querySelectorAll('[data-support-select]').forEach(cb=>cb.addEventListener('change',()=>{const k=cb.getAttribute('data-support-select');const set=new Set(state.suporteSelected||[]);cb.checked?set.add(k):set.delete(k);state.suporteSelected=[...set];}));
+    const selectAllSupport=document.getElementById('btn-select-all-support'); if(selectAllSupport) selectAllSupport.addEventListener('click',()=>{state.suporteSelected=(state.suporteInbox||[]).map(t=>t.participantName);render();});
+    const printSelectedSupport=document.getElementById('btn-print-support-selected'); if(printSelectedSupport) printSelectedSupport.addEventListener('click',()=>{const selected=(state.suporteInbox||[]).filter(t=>(state.suporteSelected||[]).includes(t.participantName));if(!selected.length){alert('Selecione ao menos um chamado.');return;}const w=window.open('','_blank');if(!w)return;const rows=selected.map(t=>`<tr><td>${esc(t.protocol||'—')}</td><td>${esc(t.participantName)}</td><td>${esc(supportStatusLabel(t.status))}</td><td>${t.createdAt?new Date(Number(t.createdAt)).toLocaleString('pt-BR'):'—'}</td><td>${t.responseDueAt?new Date(Number(t.responseDueAt)).toLocaleString('pt-BR'):'—'}</td><td>${esc((t.messages&&t.messages.length?t.messages[t.messages.length-1].text:'').slice(0,160))}</td></tr>`).join('');w.document.write(`<html><head><title>Relatório de chamados selecionados</title><style>body{font-family:Arial;padding:24px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left;font-size:12px}h2{margin-bottom:6px}</style></head><body><h2>Relatório de Chamados Selecionados</h2><p>Contabilidade Avançada · ${new Date().toLocaleString('pt-BR')}</p><table><tr><th>Protocolo</th><th>Usuário</th><th>Status</th><th>Abertura</th><th>Prazo</th><th>Última mensagem</th></tr>${rows}</table><script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close();});
 
     document.querySelectorAll('[data-release-module]').forEach(btn=>{
       btn.addEventListener('click', async()=>{
@@ -2539,7 +2546,7 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
         if(!it) return;
         const c=correctionState(it.mp); const now=Date.now();
         c.status='corrigido'; c.released=true; c.reviewedAt=now; c.finalGrade=effectiveModuleGrade(it.mp);
-        c.history.push({type:'liberacao_pedagogica',ts:now,by:state.user.name,grade:c.finalGrade});
+        c.history.push({type:'aprovacao',cycle:c.cycle,ts:now,by:state.user.name,grade:c.finalGrade});
         it.mp.correction=c;
         await saveProgress(it.student);
         await logAudit('modulo_liberado',`${state.user.name} liberou o avanço após o módulo "${it.module.title}" de ${it.student.name}. Nota do Módulo ${fmtGrade(c.finalGrade)}.`);
@@ -2587,19 +2594,22 @@ if (exerciseForm) exerciseForm.addEventListener('submit', async (e)=>{
     }));
     document.querySelectorAll('[data-return-module]').forEach(btn=>btn.addEventListener('click',async()=>{
       const idx=parseInt(btn.getAttribute('data-return-module'),10), it=(state.correcoesPendentes.modulosPendentes||[])[idx]; if(!it)return; const fi=document.querySelector(`[data-feedback-input="${idx}"]`); const feedback=(fi&&fi.value||'').trim()||'Revise o módulo e realize novamente as atividades avaliativas indicadas.';
-      const c=correctionState(it.mp); c.status='ajustes'; c.reviewedAt=Date.now(); c.feedback=feedback; c.released=false; c.finalGrade=null; c.history.push({type:'devolucao',ts:Date.now(),feedback}); it.mp.exerciseScores=new Array(it.module.exerciseLists.length).fill(null); it.mp.exerciseListsDone=new Array(it.module.exerciseLists.length).fill(false); it.mp.quizScore=null; it.mp.recoveryScore=null; it.mp.correction=c; await saveProgress(it.student); await logAudit('modulo_devolvido',`${state.user.name} devolveu o módulo "${it.module.title}" de ${it.student.name} para ajustes.`); await loadCorrecoesPendentes(); render();
+      const c=correctionState(it.mp); c.status='ajustes'; c.reviewedAt=Date.now(); c.feedback=feedback; c.released=false; c.finalGrade=null; c.history.push({type:'devolucao',cycle:c.cycle,ts:Date.now(),by:state.user.name,feedback}); c.cycle=Number(c.cycle||1)+1; it.mp.exerciseScores=new Array(it.module.exerciseLists.length).fill(null); it.mp.exerciseListsDone=new Array(it.module.exerciseLists.length).fill(false); it.mp.quizScore=null; it.mp.recoveryScore=null; it.mp.correction=c; await saveProgress(it.student); await logAudit('modulo_devolvido',`${state.user.name} devolveu o módulo "${it.module.title}" de ${it.student.name} para ajustes.`); await loadCorrecoesPendentes(); render();
     }));
     document.querySelectorAll('[data-toggle-student-details]').forEach(btn=>btn.addEventListener('click',()=>{const idx=btn.getAttribute('data-toggle-student-details'), row=document.querySelector(`[data-student-detail="${idx}"]`); if(!row)return; const open=row.style.display!=='none'; row.style.display=open?'none':'table-row'; btn.textContent=open?'Ver detalhes':'Ocultar detalhes';}));
     const exportGrades=document.getElementById('btn-export-grades'); if(exportGrades) exportGrades.addEventListener('click',()=>downloadText('notas_contabilidade_avancada.csv',gradesCsv(),'text/csv;charset=utf-8'));
     const printReport=document.getElementById('btn-print-report'); if(printReport) printReport.addEventListener('click',()=>window.print());
-    const exportBackup=document.getElementById('btn-export-backup'); if(exportBackup) exportBackup.addEventListener('click',async()=>{await loadPlanningAll(); const names=new Set(); (state.turmas||[]).forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim()))); const alunos=(state.roster||[]).filter(r=>names.has((r.name||'').trim())); const payload={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),professor:state.user.name,turmas:state.turmas,alunos,planejamentos:state.planningRecords,cadastrosPlanejamento:state.planningCatalog}; downloadText(`backup_contabilidade_avancada_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json;charset=utf-8'); logAudit('backup_exportado',`${state.user.name} gerou backup pedagógico incluindo planejamentos.`);});
+    const backupTurma=document.getElementById('backup-turma');if(backupTurma)backupTurma.addEventListener('change',()=>{state.backupTurmaId=backupTurma.value;render();});
+    const backupSemester=document.getElementById('backup-semester');if(backupSemester)backupSemester.addEventListener('change',()=>{state.backupSemester=backupSemester.value;render();});
+    const exportBackup=document.getElementById('btn-export-backup'); if(exportBackup) exportBackup.addEventListener('click',async()=>{await loadPlanningAll();let turmas=(state.turmas||[]).filter(t=>(!state.backupTurmaId||t.id===state.backupTurmaId)&&(!state.backupSemester||(t.semester||'')===state.backupSemester));const names=new Set();turmas.forEach(t=>(t.students||[]).forEach(a=>names.add((a.nome||'').trim())));const alunos=(state.roster||[]).filter(r=>names.has((r.name||'').trim()));const payload={plataforma:'Contabilidade Avançada',geradoEm:new Date().toISOString(),professor:state.user.name,filtro:{turmaId:state.backupTurmaId||null,semestre:state.backupSemester||null},turmas,alunos,planejamentos:state.planningRecords,cadastrosPlanejamento:state.planningCatalog};downloadText(`backup_contabilidade_avancada_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(payload,null,2),'application/json;charset=utf-8');await logAudit('backup_exportado',`${state.user.name} gerou backup pedagógico por turma/semestre.`);});
+    const deleteTurmaComplete=document.getElementById('btn-delete-turma-complete');if(deleteTurmaComplete)deleteTurmaComplete.addEventListener('click',async()=>{const turma=(state.turmas||[]).find(t=>t.id===state.backupTurmaId);if(!turma)return;const typed=prompt(`EXCLUSÃO COMPLETA: esta operação removerá a turma e os registros pedagógicos vinculados.\n\nDigite EXCLUIR para confirmar a turma ${turma.name}.`);if(typed!=='EXCLUIR')return;deleteTurmaComplete.disabled=true;for(const a of (turma.students||[])){const n=(a.nome||'').trim();if(!n)continue;await kvDelete('student:'+n);for(const kind of ['aluno-professor','aluno-admin']){try{await kvDelete('support:'+kind+':'+n);}catch(e){}}}await kvDelete('turma:'+turma.id);await logAudit('turma_excluida_completa',`${state.user.name} excluiu completamente a turma "${turma.name}" e registros pedagógicos vinculados.`);state.turmas=(state.turmas||[]).filter(t=>t.id!==turma.id);state.backupTurmaId='';state.roster=await loadRoster();alert('Turma e registros vinculados excluídos.');render();});
 
     const auditAll=document.getElementById('audit-all'); if(auditAll) auditAll.addEventListener('click',()=>{state.accessAuditOnly=false;render();});
     const auditAccess=document.getElementById('audit-access'); if(auditAccess) auditAccess.addEventListener('click',()=>{state.accessAuditOnly=true;render();});
     const printDoc=document.getElementById('btn-print-doc'); if(printDoc) printDoc.addEventListener('click',()=>window.print());
     const printSupport=document.getElementById('btn-print-support'); if(printSupport) printSupport.addEventListener('click',()=>window.print());
     const printSupportList=document.getElementById('btn-print-support-list'); if(printSupportList) printSupportList.addEventListener('click',()=>window.print());
-    const saveSupport=document.getElementById('btn-save-support-control'); if(saveSupport) saveSupport.addEventListener('click',async()=>{const t=state.suporteThread;if(!t)return;const old=t.status;const st=document.getElementById('support-status'),due=document.getElementById('support-due'),reo=document.getElementById('support-reopen');t.status=st?st.value:t.status;t.responseDueAt=due&&due.value?new Date(due.value).getTime():null;t.reopenUntil=reo&&reo.value?new Date(reo.value).getTime():null;t.updatedAt=Date.now();if(t.status==='encerrado'&&old!=='encerrado')t.closedAt=Date.now();if(t.status!=='encerrado')t.closedAt=null;t.history.push({type:'status',from:old,to:t.status,ts:Date.now(),by:state.user.name});const kind=state.user.role==='professor'?(state.suporteTab==='alunos'?'aluno-professor':'professor-admin'):suporteInboxKind();await saveThread(kind,t);await logAudit('status_suporte',`${state.user.name} alterou o chamado ${t.protocol||''} para ${supportStatusLabel(t.status)}.`);render();});
+    const saveSupport=document.getElementById('btn-save-support-control'); if(saveSupport) saveSupport.addEventListener('click',async()=>{const t=state.suporteThread;if(!t)return;const old=t.status;const st=document.getElementById('support-status'),due=document.getElementById('support-due'),reo=document.getElementById('support-reopen');t.status=st?st.value:t.status;t.responseDueAt=due&&due.value?new Date(due.value).getTime():null;t.reopenUntil=reo&&reo.value?new Date(reo.value).getTime():null;t.updatedAt=Date.now();if(t.status==='encerrado'&&old!=='encerrado')t.closedAt=Date.now();if(t.status!=='encerrado')t.closedAt=null;if(old!==t.status)t.history.push({type:'status',from:old,to:t.status,ts:Date.now(),by:state.user.name});t.history.push({type:'controle_administrativo',ts:Date.now(),by:state.user.name,responseDueAt:t.responseDueAt,reopenUntil:t.reopenUntil});const kind=state.user.role==='professor'?(state.suporteTab==='alunos'?'aluno-professor':'professor-admin'):suporteInboxKind();await saveThread(kind,t);await logAudit('status_suporte',`${state.user.name} alterou o chamado ${t.protocol||''} para ${supportStatusLabel(t.status)}.`);render();});
     const reopenSupport=document.getElementById('btn-reopen-support'); if(reopenSupport) reopenSupport.addEventListener('click',async()=>{const t=state.suporteThread;if(!t||!canReopenThread(t))return;t.history.push({type:'reabertura',ts:Date.now(),by:state.user.name});t.status='aberto';t.closedAt=null;t.updatedAt=Date.now();const kind=state.user.role==='aluno'?(state.suporteTab==='professor'?'aluno-professor':'aluno-admin'):(state.user.role==='professor'?(state.suporteTab==='alunos'?'aluno-professor':'professor-admin'):suporteInboxKind());await saveThread(kind,t);await logAudit('suporte_reaberto',`${state.user.name} reabriu o chamado ${t.protocol||''}.`);render();});
 
     // ---- Usuários (painel do Usuário Mestre) ----
